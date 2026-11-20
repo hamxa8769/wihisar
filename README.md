@@ -1,8 +1,53 @@
 # WiHisar — وائی حصار (WiFi Fortress)
 
-**WiHisar v0.1.0** — a lightweight Flutter app for **Android, iOS and Windows** that tests the security of **your own WiFi** and limits bandwidth on **your own router**. Educational use only.
+**WiHisar v0.2.0** — a lightweight Flutter app for **Android, iOS and Windows** that tests the security of **your own WiFi** and limits bandwidth on **your own router**. Educational use only. Cyberpunk UI, in-app updater, versioned roadmap.
 
 > **What WiHisar is NOT:** it is not a password cracker. There is no handshake capture, no dictionary or brute-force code, no aircrack-ng / hashcat / wifite, and no code that attacks other networks. The security tester estimates the strength of a password *you* type in for *your own* network, locally on your device, and never stores or sends it.
+
+## What's new in v0.2.0
+
+- **Cyberpunk UI** — dark neon theme (cyan / magenta / lime on near-black),
+  monospace headings, glowing panels. No new assets: the look is colour +
+  borders only, so the app stays lightweight.
+- **In-app updater** — checks GitHub Releases on startup. A new version
+  shows a banner at the top of the app + an update button; tap to open the
+  release and install. Nothing downloads or installs silently.
+- **Roadmap tab ("Coming Soon")** — every future feature with its version
+  number, inside the app. See [Roadmap](#roadmap) below.
+- **Versioning rule**: every update bumps the version and ships as a GitHub
+  release (v0.2.0 → v0.3.0 → …), so the updater always has something to find.
+
+## Full feature list (v0.2.0)
+
+| # | Feature | Status |
+|---|---------|--------|
+| 1 | Own-WiFi security tester — entropy, crack-time estimate, score/grade, fixes | ✅ Live |
+| 2 | Automatic router detection — gateway IP, MAC OUI, UPnP/mDNS, HTTP fingerprint, SNMP, DHCP | ✅ Live |
+| 3 | Router profiles — V-SOL, TP-Link, Huawei, ZTE, OpenWrt, generic | ✅ Live |
+| 4 | Connected-device list — ARP subnet scan, vendor lookup | ✅ Live |
+| 5 | Per-device bandwidth limits via router adapters | ✅ Live (where the router allows it) |
+| 6 | Cyberpunk UI/UX — neon dark theme, 4 tabs | ✅ Live |
+| 7 | In-app updater — GitHub Releases check, banner, one-tap open | ✅ Live |
+| 8 | Versioned roadmap inside the app | ✅ Live |
+| 9 | IP scanner & port sweep (own network) | 🔜 v0.3.0 |
+| 10 | Vulnerability Lab — nmap + weak-service + router CVE checks | 🔜 v0.4.0 |
+| 11 | Linux companion app + CLI, one-click tool install | 🔜 v0.5.0 |
+| 12 | Smart limiter v2 — verified TP-Link QoS, schedules, usage history | 🔜 v0.6.0 |
+| 13 | Family network profiles, guest QR, weekly report | 🔜 v0.7.0 |
+
+## Roadmap
+
+| Version | Feature | Platforms |
+|---------|---------|-----------|
+| v0.3.0 | IP Scanner & Port Sweep — full subnet sweep, open ports + services, unknown-device alerts, report export | Android • iOS • Windows |
+| v0.4.0 | Vulnerability Lab — nmap OS detection + vuln scripts, weak-service detector, router firmware CVE check, hardening checklist | Linux • Windows • Android (via companion) |
+| v0.5.0 | Linux companion & CLI — native Linux build, `wihisar` terminal tool, one-click install of nmap / arp-scan / iperf3, scheduled scans + history | Linux |
+| v0.6.0 | Smart limiter v2 — verified TP-Link QoS per model, time-based limits, per-device usage + data caps, OpenWrt one-tap apply | Android • iOS • Windows |
+| v0.7.0 | Family network profiles — devices per person, guest-network QR, weekly security report | Android • iOS • Windows |
+
+All future tools are for **your own network only**, same rule as v0.1.0.
+Desktop-first for the Linux tools: nmap runs natively on Linux/Windows;
+on phones it runs through the WiHisar companion service.
 
 ## Features (v0.1.0)
 

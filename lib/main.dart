@@ -1,19 +1,27 @@
-/// WiHisar v0.1.0 — own-WiFi security tester + bandwidth limiter.
+/// WiHisar v0.2.0 — own-WiFi security tester + bandwidth limiter.
 ///
 /// Educational, own-router only. No password cracking of any kind: the
 /// security test estimates the strength of a password the user types in
 /// for THEIR OWN network, locally, and never stores or sends it.
+///
+/// v0.2.0: cyberpunk UI, in-app updater (GitHub Releases), versioned
+/// "Coming Soon" roadmap tab (IP scanner, vulnerability lab, Linux tools).
 library;
 
 import 'package:flutter/material.dart';
+import 'package:url_launcher/url_launcher.dart';
 
 import 'devices/device_scan.dart';
 import 'limiter/limit_rule.dart';
 import 'limiter/limiter_service.dart';
+import 'roadmap/roadmap.dart';
 import 'router/adapters/generic_adapter.dart';
 import 'router/router_adapter.dart';
 import 'router/router_detect.dart';
 import 'security/security_tester.dart';
+import 'theme/cyberpunk_theme.dart';
+import 'update/app_update.dart';
+import 'widgets/cyber_widgets.dart';
 import 'wifi/wifi_info.dart';
 
 void main() => runApp(const WiHisarApp());
@@ -26,10 +34,7 @@ class WiHisarApp extends StatelessWidget {
     return MaterialApp(
       title: 'WiHisar — وائی حصار',
       debugShowCheckedModeBanner: false,
-      theme: ThemeData(
-        colorScheme: ColorScheme.fromSeed(seedColor: Colors.teal),
-        useMaterial3: true,
-      ),
+      theme: CyberpunkTheme.dark,
       home: const HomePage(),
     );
   }
@@ -60,7 +65,54 @@ class _HomePageState extends State<HomePage> {
   List<ConnectedDevice> _devices = [];
   String _scanNote = '';
 
-  // --- Limits tab state ---
+  // --- In-app updater state ---
+  UpdateCheckResult? _updateResult;
+  bool _checkingUpdate = false;
+
+  @override
+  void initState() {
+    super.initState();
+    _checkForUpdate(silent: true);
+  }
+
+  Future<void> _checkForUpdate({bool silent = false}) async {
+    if (_checkingUpdate) return;
+    setState(() => _checkingUpdate = true);
+    final result = await checkForUpdate();
+    if (!mounted) return;
+    setState(() {
+      _updateResult = result;
+      _checkingUpdate = false;
+    });
+    if (!silent && mounted) {
+      final info = result.info;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(
+            result.error ??
+                (result.updateAvailable
+                    ? 'Update available: v${info!.latestVersion} — open the Roadmap tab to install it.'
+                    : 'You are on the latest version (v$kAppVersion).'),
+          ),
+        ),
+      );
+    }
+  }
+
+  Future<void> _openUpdate() async {
+    final info = _updateResult?.info;
+    final url = info?.assetFor(Theme.of(context).platform.name)?.downloadUrl ??
+        info?.releasePageUrl ??
+        kReleasesPageUrl;
+    final uri = Uri.parse(url);
+    if (await canLaunchUrl(uri)) {
+      await launchUrl(uri, mode: LaunchMode.externalApplication);
+    } else if (mounted) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('Open this link to update: $url')),
+      );
+    }
+  }
   ConnectedDevice? _selectedDevice;
   double _downMbps = 5;
   double _upMbps = 2;
@@ -159,24 +211,49 @@ class _HomePageState extends State<HomePage> {
   Widget build(BuildContext context) {
     return Scaffold(
       appBar: AppBar(
-        title: const Text('WiHisar — وائی حصار'),
+        title: const Text(
+          'WiHisar — وائی حصار',
+          style: CyberpunkTheme.display,
+        ),
         actions: [
+          if (_updateResult?.updateAvailable == true)
+            IconButton(
+              icon: const Icon(Icons.system_update),
+              color: CyberpunkTheme.neonLime,
+              tooltip: 'Update available — v${_updateResult!.info!.latestVersion}',
+              onPressed: _openUpdate,
+            ),
+          IconButton(
+            icon: const Icon(Icons.refresh),
+            tooltip: 'Check for updates',
+            onPressed: () => _checkForUpdate(),
+          ),
           IconButton(
             icon: const Icon(Icons.info_outline),
             tooltip: 'About',
             onPressed: () => showDialog<void>(
               context: context,
               builder: (c) => AlertDialog(
-                title: const Text('WiHisar v0.1.0'),
+                title: const Text('WiHisar v$kAppVersion'),
                 content: const Text(
                   'Own-WiFi security tester and bandwidth limiter (educational).\n\n'
                   '• Tests ONLY your own WiFi.\n'
                   '• No password cracking, no handshake capture.\n'
                   '• Your password is analysed locally and never stored or sent.\n'
                   '• On iOS, WiFi scanning is blocked by Apple — use the router-login path.\n'
-                  '• If your router has no limiter API, WiHisar says so instead of faking a limit.',
+                  '• If your router has no limiter API, WiHisar says so instead of faking a limit.\n\n'
+                  'Updates: the app checks GitHub Releases on startup. '
+                  'When a new version is out, an update button appears here — '
+                  'tap it to open the release and install. Nothing downloads or installs silently.',
                 ),
                 actions: [
+                  TextButton(
+                    onPressed: () {
+                      Navigator.of(c).pop();
+                      _checkForUpdate();
+                    },
+                    child: const Text('Check for updates'),
+                  ),
                   TextButton(
                     onPressed: () => Navigator.of(c).pop(),
                     child: const Text('OK'),
@@ -187,9 +264,50 @@ class _HomePageState extends State<HomePage> {
           ),
         ],
       ),
-      body: IndexedStack(
-        index: _tab,
-        children: [_testTab(), _devicesTab(), _limitsTab()],
+      body: Column(
+        children: [
+          if (_updateResult?.updateAvailable == true)
+            InkWell(
+              onTap: _openUpdate,
+              child: Container(
+                width: double.infinity,
+                padding: const EdgeInsets.symmetric(
+                  horizontal: 16,
+                  vertical: 10,
+                ),
+                color: CyberpunkTheme.neonLime.withValues(alpha: 0.15),
+                child: Row(
+                  children: [
+                    const Icon(
+                      Icons.system_update,
+                      color: CyberpunkTheme.neonLime,
+                    ),
+                    const SizedBox(width: 8),
+                    Expanded(
+                      child: Text(
+                        'Update available: v${_updateResult!.info!.latestVersion} — tap to install',
+                        style: const TextStyle(
+                          color: CyberpunkTheme.neonLime,
+                          fontWeight: FontWeight.bold,
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ),
+          Expanded(
+            child: IndexedStack(
+              index: _tab,
+              children: [
+                _testTab(),
+                _devicesTab(),
+                _limitsTab(),
+                _roadmapTab(),
+              ],
+            ),
+          ),
+        ],
       ),
       bottomNavigationBar: NavigationBar(
         selectedIndex: _tab,
@@ -198,8 +316,133 @@ class _HomePageState extends State<HomePage> {
           NavigationDestination(icon: Icon(Icons.shield_outlined), label: 'Test'),
           NavigationDestination(icon: Icon(Icons.devices), label: 'Devices'),
           NavigationDestination(icon: Icon(Icons.speed), label: 'Limits'),
+          NavigationDestination(icon: Icon(Icons.rocket_launch), label: 'Roadmap'),
         ],
       ),
+    );
+  }
+
+  // ------------------------------------------------------------- Roadmap tab
+  Widget _roadmapTab() {
+    return ListView(
+      padding: const EdgeInsets.all(16),
+      children: [
+        const CyberHeading('Coming soon'),
+        const SizedBox(height: 8),
+        Text(
+          'WiHisar v$kAppVersion — next up is $nextVersion. '
+          'Every feature below has a version number: it ships in that '
+          'version, and the in-app updater will offer it here when it lands.',
+          style: const TextStyle(color: CyberpunkTheme.textMuted),
+        ),
+        const SizedBox(height: 16),
+        for (final item in kRoadmap) ...[
+          CyberCard(
+            accent: item.status == RoadmapStatus.nextUp
+                ? CyberpunkTheme.neonLime
+                : CyberpunkTheme.neonMagenta,
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Row(
+                  children: [
+                    CyberChip(
+                      item.version,
+                      accent: CyberpunkTheme.neonCyan,
+                    ),
+                    const SizedBox(width: 8),
+                    CyberChip(
+                      item.status == RoadmapStatus.nextUp
+                          ? 'NEXT UP'
+                          : item.status == RoadmapStatus.planned
+                              ? 'PLANNED'
+                              : 'IDEA',
+                      accent: item.status == RoadmapStatus.nextUp
+                          ? CyberpunkTheme.neonLime
+                          : CyberpunkTheme.neonMagenta,
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 10),
+                Text(
+                  item.title,
+                  style: CyberpunkTheme.display.copyWith(fontSize: 16),
+                ),
+                const SizedBox(height: 4),
+                Text(item.summary),
+                const SizedBox(height: 8),
+                for (final f in item.features)
+                  Padding(
+                    padding: const EdgeInsets.only(top: 3),
+                    child: Text('▸ $f'),
+                  ),
+                const SizedBox(height: 8),
+                Text(
+                  item.platforms,
+                  style: const TextStyle(
+                    color: CyberpunkTheme.textMuted,
+                    fontFamily: 'monospace',
+                    fontSize: 12,
+                  ),
+                ),
+                if (item.honestNote != null) ...[
+                  const SizedBox(height: 6),
+                  Text(
+                    item.honestNote!,
+                    style: const TextStyle(
+                      color: CyberpunkTheme.warnAmber,
+                      fontSize: 12,
+                    ),
+                  ),
+                ],
+              ],
+            ),
+          ),
+          const SizedBox(height: 12),
+        ],
+        CyberCard(
+          accent: CyberpunkTheme.neonCyan,
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              const Text(
+                'How updates work',
+                style: CyberpunkTheme.display,
+              ),
+              const SizedBox(height: 6),
+              const Text(
+                'Every WiHisar update bumps the version (v0.2.0 → v0.3.0 …) '
+                'and ships as a GitHub release. The app checks on startup; '
+                'when a new version is out, a banner appears at the top — '
+                'tap it to open the release and install. Nothing downloads '
+                'or installs without you.',
+              ),
+              const SizedBox(height: 12),
+              FilledButton.icon(
+                onPressed: () => _checkForUpdate(),
+                icon: const Icon(Icons.refresh),
+                label: Text(
+                  _checkingUpdate
+                      ? 'Checking…'
+                      : 'Check for updates now',
+                ),
+              ),
+              if (_updateResult != null) ...[
+                const SizedBox(height: 8),
+                Text(
+                  _updateResult!.error ??
+                      (_updateResult!.updateAvailable
+                          ? 'v${_updateResult!.info!.latestVersion} is available — tap the banner at the top to install.'
+                          : 'You are on the latest version (v$kAppVersion).'),
+                  style: const TextStyle(
+                    color: CyberpunkTheme.textMuted,
+                  ),
+                ),
+              ],
+            ],
+          ),
+        ),
+      ],
     );
   }
 
@@ -209,10 +452,7 @@ class _HomePageState extends State<HomePage> {
     return ListView(
       padding: const EdgeInsets.all(16),
       children: [
-        const Text(
-          'Test your OWN WiFi',
-          style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold),
-        ),
+        const CyberHeading('Test your own WiFi'),
         const SizedBox(height: 8),
         const Text(
           'Educational check of the network you own. Type your own WiFi password — it is analysed on this device only and never stored or sent anywhere.',
@@ -304,10 +544,7 @@ class _HomePageState extends State<HomePage> {
     return ListView(
       padding: const EdgeInsets.all(16),
       children: [
-        const Text(
-          'Detect your router',
-          style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold),
-        ),
+        const CyberHeading('Detect your router'),
         const SizedBox(height: 8),
         const Text(
           'WiHisar detects the gateway automatically (gateway IP, MAC vendor, admin-page fingerprint). Paste the admin page title if you know it — it raises the confidence score.',
@@ -408,10 +645,7 @@ class _HomePageState extends State<HomePage> {
     return ListView(
       padding: const EdgeInsets.all(16),
       children: [
-        const Text(
-          'Bandwidth limits',
-          style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold),
-        ),
+        const CyberHeading('Bandwidth limits'),
         const SizedBox(height: 8),
         Text(
           'Router: ${_detection?.profile.displayName ?? 'Not detected yet — detect it on the Devices tab.'}',
