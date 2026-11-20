@@ -1,0 +1,102 @@
+# WiHisar release builds — Android APK + Windows app.
+#
+# Builds the Flutter app and attaches the installers to the GitHub release
+# for the tag. Two triggers:
+#   1. Pushing a tag like v0.2.0 (the normal path: every version bump ships
+#      a release with fresh builds).
+#   2. Manual run (Actions tab -> "Release" -> Run workflow) with a tag
+#      input, e.g. to attach builds to an existing release.
+#
+# Notes (honest):
+# - The APK is signed with Flutter's debug keystore fallback (no release
+#   keystore is configured yet). It installs fine by sideloading; a proper
+#   release keystore is a v0.2.2 job.
+# - iOS (.ipa) is NOT built here: it needs macOS + Xcode + Apple signing,
+#   which GitHub's macOS runner could do only with the user's Apple
+#   credentials. Android + Windows first; iOS later.
+
+name: Release
+
+on:
+  push:
+    tags:
+      - "v*"
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: "Release tag to attach builds to (e.g. v0.2.0)"
+        required: true
+        default: "v0.2.0"
+
+permissions:
+  contents: write
+
+jobs:
+  build-android:
+    name: Android APK
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+      - name: Set tag name
+        run: echo "TAG=${{ inputs.tag || github.ref_name }}" >> $GITHUB_ENV
+      - name: Analyze + test
+        run: |
+          flutter analyze
+          flutter test
+      - name: Build APK
+        run: flutter build apk --release
+      - name: Rename APK
+        run: |
+          cp build/app/outputs/flutter-apk/app-release.apk \
+            WiHisar-$TAG-Android.apk
+      - uses: actions/upload-artifact@v4
+        with:
+          name: android-apk
+          path: WiHisar-*-Android.apk
+
+  build-windows:
+    name: Windows app
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+      - name: Set tag name
+        shell: pwsh
+        run: echo "TAG=${{ inputs.tag || github.ref_name }}" >> $env:GITHUB_ENV
+      - name: Analyze + test
+        run: |
+          flutter analyze
+          flutter test
+      - name: Build Windows
+        run: flutter build windows --release
+      - name: Zip Windows build
+        shell: pwsh
+        run: |
+          Compress-Archive -Path build/windows/x64/runner/Release/* `
+            -DestinationPath "WiHisar-$env:TAG-Windows.zip"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: windows-zip
+          path: WiHisar-*-Windows.zip
+
+  attach-to-release:
+    name: Attach to release
+    needs: [build-android, build-windows]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          path: dist
+          merge-multiple: true
+      - name: List files
+        run: ls -la dist/
+      - uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ inputs.tag || github.ref_name }}
+          files: dist/*
+          fail_on_unmatched_files: true
