@@ -4,6 +4,26 @@ All notable changes, newest first. Versioning: **every update bumps the
 version** and ships as a GitHub release; the in-app updater offers it from
 inside the app (banner + Roadmap tab). No silent downloads, no silent installs.
 
+## v0.4.0 — 2026-11-21
+
+### Added — true in-app update (no more manual downloads)
+- **Download & install inside the app**: when a new version is out, the
+  banner and the Roadmap tab offer "Download & install". Android downloads
+  the APK into the app cache and opens the system installer (which always
+  does the installing — the app never installs silently, and Android asks
+  once for "install unknown apps"). Windows downloads the zip, extracts it
+  and restarts the app on the new version via a small update script.
+- **Live download progress** in the update banner and the Roadmap tab.
+- iOS / macOS / Linux still open the release page — Apple and the desktop
+  stores allow no sideload install from inside the app, and the UI says so.
+- `path_provider` + `archive` dependencies; Android `REQUEST_INSTALL_PACKAGES`
+  permission + FileProvider (MainActivity.kt channel `wihisar.app_update`).
+
+### Changed
+- Roadmap renumbered: v0.4.0 is the in-app update (shipped), v0.5.0
+  Vulnerability Lab is next up, Linux companion v0.6.0, Smart limiter v2
+  v0.7.0, Family profiles v0.8.0.
+
 ## v0.3.0 — 2026-11-21
 
 ### Added — auto scan (no more manual entry)

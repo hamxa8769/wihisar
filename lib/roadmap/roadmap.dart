@@ -61,7 +61,7 @@ const List<RoadmapItem> kRoadmap = [
     version: 'v0.3.0',
     title: 'IP Scanner & Port Sweep',
     summary:
-        'See everything on your own network: every IP, open port and service. SHIPPED — this version.',
+        'See everything on your own network: every IP, open port and service. SHIPPED.',
     features: [
       'Full subnet sweep (all 254 addresses) with live host discovery',
       'Open-port scan per device with service names (HTTP, SSH, SMB…)',
@@ -74,6 +74,21 @@ const List<RoadmapItem> kRoadmap = [
   ),
   RoadmapItem(
     version: 'v0.4.0',
+    title: 'True in-app update',
+    summary:
+        'No more manual downloads: tap update in the app and it downloads and installs itself. SHIPPED — this version.',
+    features: [
+      'Android: APK downloads in the app, system installer opens',
+      'Windows: zip downloads, extracts, app restarts on the new version',
+      'Live download progress in the update banner',
+      'iOS opens the release page (Apple allows no sideload install)',
+    ],
+    status: RoadmapStatus.shipped,
+    honestNote:
+        'Android asks once for "install unknown apps" — the system installer always does the installing, never the app silently.',
+  ),
+  RoadmapItem(
+    version: 'v0.5.0',
     title: 'Vulnerability Lab — Linux tools, inside the app',
     summary:
         'Own-network vulnerability checks powered by the Linux tools professionals use.',
@@ -89,7 +104,7 @@ const List<RoadmapItem> kRoadmap = [
         'Desktop-first: nmap runs natively on Linux/Windows. On phones it runs through the WiHisar companion service, never against networks you do not own.',
   ),
   RoadmapItem(
-    version: 'v0.5.0',
+    version: 'v0.6.0',
     title: 'Linux companion & CLI',
     summary: 'WiHisar as a Linux app and terminal tool — the full toolbox.',
     features: [
@@ -104,7 +119,7 @@ const List<RoadmapItem> kRoadmap = [
         'Tools are installed only with your permission, from your distro\'s own packages.',
   ),
   RoadmapItem(
-    version: 'v0.6.0',
+    version: 'v0.7.0',
     title: 'Smart limiter v2',
     summary: 'Limits that actually work on more routers, with schedules.',
     features: [
@@ -115,10 +130,10 @@ const List<RoadmapItem> kRoadmap = [
     ],
     status: RoadmapStatus.idea,
     honestNote:
-        'V-SOL and most ONU web UIs expose no limiter API — v0.6.0 still will not fake it. Where the router cannot limit, the OpenWrt-bridge path is the answer.',
+        'V-SOL and most ONU web UIs expose no limiter API — v0.7.0 still will not fake it. Where the router cannot limit, the OpenWrt-bridge path is the answer.',
   ),
   RoadmapItem(
-    version: 'v0.7.0',
+    version: 'v0.8.0',
     title: 'Family network profiles',
     summary: 'One profile per person: their devices, their limits, their time.',
     features: [

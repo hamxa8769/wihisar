@@ -1,8 +1,17 @@
 # WiHisar — وائی حصار (WiFi Fortress)
 
-**WiHisar v0.3.0** — a lightweight Flutter app for **Android, iOS and Windows** that tests the security of **your own WiFi** and limits bandwidth on **your own router**. Educational use only. Cyberpunk UI, in-app updater, versioned roadmap, one-tap auto network scan, Linux tools (nmap, arp-scan).
+**WiHisar v0.4.0** — a lightweight Flutter app for **Android, iOS and Windows** that tests the security of **your own WiFi** and limits bandwidth on **your own router**. Educational use only. Cyberpunk UI, true in-app update (download & install inside the app), versioned roadmap, one-tap auto network scan, Linux tools (nmap, arp-scan).
 
 > **What WiHisar is NOT:** it is not a password cracker. There is no handshake capture, no dictionary or brute-force code, no aircrack-ng / hashcat / wifite, and no code that attacks other networks. The security tester estimates the strength of a password *you* type in for *your own* network, locally on your device, and never stores or sends it.
+
+## What's new in v0.4.0 — true in-app update
+
+- **Download & install inside the app** — no more manual downloads. When
+  a new version is out, tap "Download & install" on the banner or the
+  Roadmap tab: Android downloads the APK and opens the system installer,
+  Windows downloads the zip and restarts on the new version. Live progress
+  is shown while it downloads. (iOS opens the release page — Apple allows
+  no sideload install from inside an app.)
 
 ## What's new in v0.3.0 — auto scan, no manual entry
 
@@ -39,23 +48,25 @@
 | 5 | Per-device bandwidth limits via router adapters | ✅ Live (where the router allows it) |
 | 6 | Cyberpunk UI/UX — neon dark theme, 4 tabs | ✅ Live |
 | 7 | In-app updater — GitHub Releases check, banner, one-tap open | ✅ Live |
-| 8 | Versioned roadmap inside the app | ✅ Live |
-| 9 | IP scanner & port sweep — auto subnet sweep, open ports, live progress | ✅ Live in v0.3.0 |
-| 10 | Linux tools — nmap, arp-scan, iw, nmcli, iperf3 detection + run | ✅ Live in v0.3.0 (desktop) |
-| 11 | Vulnerability Lab — nmap vuln scripts, weak-service + router CVE checks | 🔜 v0.4.0 |
-| 12 | Linux companion app + CLI, one-click tool install | 🔜 v0.5.0 |
-| 13 | Smart limiter v2 — verified TP-Link QoS, schedules, usage history | 🔜 v0.6.0 |
-| 14 | Family network profiles, guest QR, weekly report | 🔜 v0.7.0 |
+| 8 | True in-app update — download & install inside the app (Android installer, Windows restart) | ✅ Live in v0.4.0 |
+| 9 | Versioned roadmap inside the app | ✅ Live |
+| 10 | IP scanner & port sweep — auto subnet sweep, open ports, live progress | ✅ Live in v0.3.0 |
+| 11 | Linux tools — nmap, arp-scan, iw, nmcli, iperf3 detection + run | ✅ Live in v0.3.0 (desktop) |
+| 12 | Vulnerability Lab — nmap vuln scripts, weak-service + router CVE checks | 🔜 v0.5.0 |
+| 13 | Linux companion app + CLI, one-click tool install | 🔜 v0.6.0 |
+| 14 | Smart limiter v2 — verified TP-Link QoS, schedules, usage history | 🔜 v0.7.0 |
+| 15 | Family network profiles, guest QR, weekly report | 🔜 v0.8.0 |
 
 ## Roadmap
 
 | Version | Feature | Platforms |
 |---------|---------|-----------|
 | v0.3.0 | IP Scanner & Port Sweep — full subnet sweep, open ports + services, unknown-device alerts, report export | Android • iOS • Windows | ✅ Shipped |
-| v0.4.0 | Vulnerability Lab — nmap OS detection + vuln scripts, weak-service detector, router firmware CVE check, hardening checklist | Linux • Windows • Android (via companion) |
-| v0.5.0 | Linux companion & CLI — native Linux build, `wihisar` terminal tool, one-click install of nmap / arp-scan / iperf3, scheduled scans + history | Linux |
-| v0.6.0 | Smart limiter v2 — verified TP-Link QoS per model, time-based limits, per-device usage + data caps, OpenWrt one-tap apply | Android • iOS • Windows |
-| v0.7.0 | Family network profiles — devices per person, guest-network QR, weekly security report | Android • iOS • Windows |
+| v0.4.0 | True in-app update — download & install inside the app (Android system installer, Windows restart) | Android • Windows | ✅ Shipped |
+| v0.5.0 | Vulnerability Lab — nmap OS detection + vuln scripts, weak-service detector, router firmware CVE check, hardening checklist | Linux • Windows • Android (via companion) |
+| v0.6.0 | Linux companion & CLI — native Linux build, `wihisar` terminal tool, one-click install of nmap / arp-scan / iperf3, scheduled scans + history | Linux |
+| v0.7.0 | Smart limiter v2 — verified TP-Link QoS per model, time-based limits, per-device usage + data caps, OpenWrt one-tap apply | Android • iOS • Windows |
+| v0.8.0 | Family network profiles — devices per person, guest-network QR, weekly security report | Android • iOS • Windows |
 
 All future tools are for **your own network only**, same rule as v0.1.0.
 Desktop-first for the Linux tools: nmap runs natively on Linux/Windows;

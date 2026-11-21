@@ -1,0 +1,6 @@
+<?xml version="1.0" encoding="utf-8"?>
+<paths>
+    <!-- The in-app updater downloads the new APK into the app cache dir,
+         and FileProvider serves that one file to the system installer. -->
+    <cache-path name="updates" path="updates/" />
+</paths>

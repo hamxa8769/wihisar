@@ -14,7 +14,7 @@ import 'dart:convert';
 import 'dart:io';
 
 /// The version of the app that is currently running.
-const String kAppVersion = '0.3.0';
+const String kAppVersion = '0.4.0';
 
 /// GitHub repo the updater watches.
 const String kUpdateRepo = 'hamxa8769/wihisar';

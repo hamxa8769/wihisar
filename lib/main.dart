@@ -29,6 +29,7 @@ import 'security/security_tester.dart';
 import 'theme/cyberpunk_theme.dart';
 import 'tools/linux_tools.dart';
 import 'update/app_update.dart';
+import 'update/installer.dart';
 import 'widgets/cyber_widgets.dart';
 import 'wifi/wifi_info.dart';
 
@@ -83,6 +84,9 @@ class _HomePageState extends State<HomePage> {
   // --- In-app updater state ---
   UpdateCheckResult? _updateResult;
   bool _checkingUpdate = false;
+  bool _downloading = false;
+  double _downloadProgress = 0;
+  String _downloadNote = '';
 
   @override
   void initState() {
@@ -115,18 +119,66 @@ class _HomePageState extends State<HomePage> {
     }
   }
 
+  /// True in-app update: download the new version and install it without
+  /// leaving the app. Android downloads the APK and opens the system
+  /// installer; Windows downloads the zip, extracts it and restarts the
+  /// app on the new version. iOS/macOS/Linux have no sideload path, so
+  /// the release page opens instead.
   Future<void> _openUpdate() async {
     final info = _updateResult?.info;
-    final url = info?.assetFor(Theme.of(context).platform.name)?.downloadUrl ??
-        info?.releasePageUrl ??
-        kReleasesPageUrl;
-    final uri = Uri.parse(url);
-    if (await canLaunchUrl(uri)) {
-      await launchUrl(uri, mode: LaunchMode.externalApplication);
-    } else if (mounted) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('Open this link to update: $url')),
+    if (info == null || _downloading) return;
+    final platform = Theme.of(context).platform.name;
+    final asset = info.assetFor(platform);
+    if (asset == null || (!Platform.isAndroid && !Platform.isWindows)) {
+      final uri = Uri.parse(info.releasePageUrl);
+      if (await canLaunchUrl(uri)) {
+        await launchUrl(uri, mode: LaunchMode.externalApplication);
+      } else if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Open this link to update: ${info.releasePageUrl}')),
+        );
+      }
+      return;
+    }
+    setState(() {
+      _downloading = true;
+      _downloadProgress = 0;
+      _downloadNote = 'Downloading v${info.latestVersion}…';
+    });
+    try {
+      final updater = InAppUpdater();
+      final file = await updater.downloadFile(
+        asset.downloadUrl,
+        fileName: asset.name,
+        onProgress: (received, total) {
+          if (!mounted) return;
+          if (total != null && total > 0) {
+            setState(() => _downloadProgress = received / total);
+          }
+        },
       );
+      if (!mounted) return;
+      if (Platform.isAndroid) {
+        setState(() => _downloadNote = 'Download complete — opening installer…');
+        final ok = await updater.installApk(file);
+        if (!mounted) return;
+        setState(() {
+          _downloading = false;
+          _downloadNote = ok
+              ? 'Installer opened — follow the system prompt to install v${info.latestVersion}.'
+              : 'Could not open the installer. Open the release page to install it manually.';
+        });
+      } else {
+        // Windows: extract + restart on the new version (this exits).
+        setState(() => _downloadNote = 'Download complete — restarting on the new version…');
+        await applyWindowsUpdate(zipFile: file);
+      }
+    } catch (e) {
+      if (!mounted) return;
+      setState(() {
+        _downloading = false;
+        _downloadNote = 'Update failed: $e — check your connection and try again.';
+      });
     }
   }
   ConnectedDevice? _selectedDevice;
@@ -384,8 +436,11 @@ class _HomePageState extends State<HomePage> {
                   '• On iOS, WiFi scanning is blocked by Apple — use the router-login path.\n'
                   '• If your router has no limiter API, WiHisar says so instead of faking a limit.\n\n'
                   'Updates: the app checks GitHub Releases on startup. '
-                  'When a new version is out, an update button appears here — '
-                  'tap it to open the release and install. Nothing downloads or installs silently.',
+                  'When a new version is out, a banner appears at the top — '
+                  'tap it and the app downloads and installs the update '
+                  'itself (Android: system installer opens; Windows: the '
+                  'app restarts on the new version). Nothing downloads '
+                  'without you tapping.',
                 ),
                 actions: [
                   TextButton(
@@ -426,7 +481,7 @@ class _HomePageState extends State<HomePage> {
                     const SizedBox(width: 8),
                     Expanded(
                       child: Text(
-                        'Update available: v${_updateResult!.info!.latestVersion} — tap to install',
+                        'Update available: v${_updateResult!.info!.latestVersion} — tap to download & install in the app',
                         style: const TextStyle(
                           color: CyberpunkTheme.neonLime,
                           fontWeight: FontWeight.bold,
@@ -435,6 +490,24 @@ class _HomePageState extends State<HomePage> {
                     ),
                   ],
                 ),
+              ),
+            ),
+          if (_downloading || _downloadNote.isNotEmpty)
+            Container(
+              width: double.infinity,
+              padding: const EdgeInsets.symmetric(
+                horizontal: 16,
+                vertical: 10,
+              ),
+              color: CyberpunkTheme.surfaceRaised,
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  if (_downloading)
+                    LinearProgressIndicator(value: _downloadProgress),
+                  if (_downloading) const SizedBox(height: 6),
+                  Text(_downloadNote),
+                ],
               ),
             ),
           Expanded(
@@ -556,11 +629,13 @@ class _HomePageState extends State<HomePage> {
               ),
               const SizedBox(height: 6),
               const Text(
-                'Every WiHisar update bumps the version (v0.2.0 → v0.3.0 …) '
+                'Every WiHisar update bumps the version (v0.3.0 → v0.4.0 …) '
                 'and ships as a GitHub release. The app checks on startup; '
                 'when a new version is out, a banner appears at the top — '
-                'tap it to open the release and install. Nothing downloads '
-                'or installs without you.',
+                'tap it and the app downloads and installs the update '
+                'itself. No manual download, no browser. On iOS the '
+                'release page opens instead (Apple does not allow '
+                'in-app sideload installs).',
               ),
               const SizedBox(height: 12),
               FilledButton.icon(
@@ -572,12 +647,24 @@ class _HomePageState extends State<HomePage> {
                       : 'Check for updates now',
                 ),
               ),
+              if (_updateResult?.updateAvailable == true) ...[
+                const SizedBox(height: 8),
+                FilledButton.icon(
+                  onPressed: _downloading ? null : _openUpdate,
+                  icon: const Icon(Icons.system_update),
+                  label: Text(
+                    _downloading
+                        ? 'Downloading… ${(_downloadProgress * 100).toStringAsFixed(0)}%'
+                        : 'Download & install v${_updateResult!.info!.latestVersion}',
+                  ),
+                ),
+              ],
               if (_updateResult != null) ...[
                 const SizedBox(height: 8),
                 Text(
                   _updateResult!.error ??
                       (_updateResult!.updateAvailable
-                          ? 'v${_updateResult!.info!.latestVersion} is available — tap the banner at the top to install.'
+                          ? 'v${_updateResult!.info!.latestVersion} is available — tap the button above to download & install it in the app.'
                           : 'You are on the latest version (v$kAppVersion).'),
                   style: const TextStyle(
                     color: CyberpunkTheme.textMuted,

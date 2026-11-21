@@ -1,16 +1,18 @@
 name: wihisar
 description: "WiHisar — own-WiFi security tester and bandwidth limiter (educational, own router only). Lightweight Flutter app for Android, iOS and Windows."
 publish_to: "none"
-version: 0.3.0+3
+version: 0.4.0+4
 
 environment:
   sdk: ^3.5.0
   flutter: ">=3.24.0"
 
 dependencies:
+  archive: ^4.7.1
   flutter:
     sdk: flutter
   network_info_plus: ^8.2.2
+  path_provider: ^2.1.6
   url_launcher: ^6.3.3
 
 dev_dependencies:
