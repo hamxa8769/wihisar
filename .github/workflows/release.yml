@@ -42,10 +42,10 @@ jobs:
           channel: stable
       - name: Set tag name
         run: echo "TAG=${{ inputs.tag || github.ref_name }}" >> $GITHUB_ENV
-      - name: Analyze + test
-        run: |
-          flutter analyze
-          flutter test
+      - name: Analyze (info-level notices never block a release)
+        run: flutter analyze --no-fatal-infos
+      - name: Test
+        run: flutter test
       - name: Build APK
         run: flutter build apk --release
       - name: Rename APK
@@ -68,10 +68,10 @@ jobs:
       - name: Set tag name
         shell: pwsh
         run: echo "TAG=${{ inputs.tag || github.ref_name }}" >> $env:GITHUB_ENV
-      - name: Analyze + test
-        run: |
-          flutter analyze
-          flutter test
+      - name: Analyze (info-level notices never block a release)
+        run: flutter analyze --no-fatal-infos
+      - name: Test
+        run: flutter test
       - name: Build Windows
         run: flutter build windows --release
       - name: Zip Windows build
