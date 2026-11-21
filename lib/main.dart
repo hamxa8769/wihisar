@@ -1,15 +1,19 @@
 // ignore_for_file: deprecated_member_use
-/// WiHisar v0.2.0 — own-WiFi security tester + bandwidth limiter.
+/// WiHisar v0.3.0 — own-WiFi security tester + bandwidth limiter.
 ///
 /// Educational, own-router only. No password cracking of any kind: the
 /// security test estimates the strength of a password the user types in
 /// for THEIR OWN network, locally, and never stores or sends it.
 ///
-/// v0.2.0: cyberpunk UI, in-app updater (GitHub Releases), versioned
-/// "Coming Soon" roadmap tab (IP scanner, vulnerability lab, Linux tools).
+/// v0.3.0: auto scanner (no manual gateway/SSID entry — the app finds
+/// your network itself) + Linux tools layer (nmap, arp-scan, iw, nmcli,
+/// iperf3; aircrack-ng detected only, cracking NOT built).
 library;
 
+import 'dart:io' show Platform;
+
 import 'package:flutter/material.dart';
+import 'package:network_info_plus/network_info_plus.dart';
 import 'package:url_launcher/url_launcher.dart';
 
 import 'devices/device_scan.dart';
@@ -19,8 +23,11 @@ import 'roadmap/roadmap.dart';
 import 'router/adapters/generic_adapter.dart';
 import 'router/router_adapter.dart';
 import 'router/router_detect.dart';
+import 'scan/auto_scan.dart';
+import 'scan/host.dart';
 import 'security/security_tester.dart';
 import 'theme/cyberpunk_theme.dart';
+import 'tools/linux_tools.dart';
 import 'update/app_update.dart';
 import 'widgets/cyber_widgets.dart';
 import 'wifi/wifi_info.dart';
@@ -58,13 +65,20 @@ class _HomePageState extends State<HomePage> {
   bool _wps = false;
   SecurityReport? _report;
 
-  // --- Devices / detection state ---
+  // --- Devices / auto-scan state ---
   final _gatewayCtrl = TextEditingController(text: '192.168.1.1');
   final _titleCtrl = TextEditingController();
   final _serverCtrl = TextEditingController();
   RouterDetection? _detection;
-  List<ConnectedDevice> _devices = [];
+  LocalNetwork? _network;
+  List<ScannedHost> _hosts = [];
+  bool _scanning = false;
+  double _scanProgress = 0;
+  String _scanPhase = '';
   String _scanNote = '';
+  List<LinuxTool> _tools = [];
+  bool _toolsChecked = false;
+  String _toolsNote = '';
 
   // --- In-app updater state ---
   UpdateCheckResult? _updateResult;
@@ -74,6 +88,7 @@ class _HomePageState extends State<HomePage> {
   void initState() {
     super.initState();
     _checkForUpdate(silent: true);
+    _detectNetwork();
   }
 
   Future<void> _checkForUpdate({bool silent = false}) async {
@@ -175,14 +190,139 @@ class _HomePageState extends State<HomePage> {
     });
   }
 
-  Future<void> _scanDevices() async {
-    setState(() => _scanNote = 'Scanning the local subnet…');
-    final devices = await SubnetScanner().readNeighbourTable();
+  /// Find the network this device is on — no manual entry. Fills the SSID
+  /// (Test tab) and gateway (Devices tab) automatically. Best effort: if
+  /// the OS will not tell us, the fields stay editable by hand.
+  Future<void> _detectNetwork() async {
+    String? ssid;
+    try {
+      ssid = await NetworkInfo().getWifiName();
+      if (ssid != null) ssid = ssid.replaceAll('"', '').trim();
+    } catch (_) {
+      // SSID unavailable on this device — user can type it.
+    }
+    final network = await AutoScanner().detectLocalNetwork(
+      ssidOverride: ssid,
+    );
+    if (!mounted) return;
     setState(() {
-      _devices = devices;
-      _scanNote = devices.isEmpty
-          ? 'No devices found in the ARP table. On this device the scan may need local-network permission — try the router DHCP list instead.'
-          : 'Found ${devices.length} device(s) in the ARP table.';
+      _network = network;
+      if (network != null) {
+        _gatewayCtrl.text = network.gatewayIp ?? _gatewayCtrl.text;
+        if (ssid != null && ssid.isNotEmpty && _ssidCtrl.text.isEmpty) {
+          _ssidCtrl.text = ssid;
+        }
+      }
+    });
+  }
+
+  /// One-tap scan: finds the network (if not found yet), sweeps every host,
+  /// resolves names, probes ports, and checks the Linux tools.
+  Future<void> _startScan() async {
+    if (_scanning) return;
+    setState(() {
+      _scanning = true;
+      _scanNote = '';
+      _hosts = [];
+    });
+    var network = _network;
+    network ??= await AutoScanner().detectLocalNetwork();
+    if (!mounted) return;
+    if (network == null) {
+      setState(() {
+        _scanning = false;
+        _scanNote =
+            'No WiFi network found. Connect to your WiFi first, then scan again.';
+      });
+      return;
+    }
+    setState(() {
+      _network = network;
+      _gatewayCtrl.text = network!.gatewayIp ?? _gatewayCtrl.text;
+    });
+    final scanner = AutoScanner();
+    final hosts = await scanner.scan(
+      network,
+      onProgress: (done, total, phase) {
+        if (!mounted) return;
+        setState(() {
+          _scanProgress = total == 0 ? 0 : done / total;
+          _scanPhase = phase;
+        });
+      },
+    );
+    if (!mounted) return;
+    setState(() {
+      _hosts = hosts;
+      _scanning = false;
+      _scanPhase = '';
+      _scanNote = hosts.isEmpty
+          ? 'No devices found. On this device the scan may need local-network permission — try the router DHCP list instead.'
+          : 'Found ${hosts.length} device(s) on ${network!.networkAddress}/${network.prefix}.';
+    });
+    await _detectTools();
+  }
+
+  Future<void> _detectTools() async {
+    final tools = await detectTools();
+    if (!mounted) return;
+    setState(() {
+      _tools = tools;
+      _toolsChecked = true;
+    });
+  }
+
+  /// Run nmap's ping scan on our own subnet (desktop only) and merge any
+  /// hosts it finds that the built-in scan missed.
+  Future<void> _runNmapScan() async {
+    final network = _network;
+    if (network == null) return;
+    setState(() => _toolsNote = 'Running ${nmapPingScanCommand('${network.networkAddress}/${network.prefix}')} …');
+    final ips = await runNmapPingScan('${network.networkAddress}/${network.prefix}');
+    if (!mounted) return;
+    final known = _hosts.map((h) => h.ip).toSet();
+    final extra = ips.where((ip) => !known.contains(ip)).map(
+          (ip) => ScannedHost(
+            ip: ip,
+            isGateway: ip == network.gatewayIp,
+            isSelf: ip == network.localIp,
+          ),
+        );
+    setState(() {
+      _hosts = [..._hosts, ...extra]
+        ..sort((a, b) => a.ip.compareTo(b.ip));
+      _toolsNote = ips.isEmpty
+          ? 'nmap found no live hosts (is nmap installed?).'
+          : 'nmap found ${ips.length} live host(s).';
+    });
+  }
+
+  /// Run arp-scan on the local network (desktop only) and merge results.
+  Future<void> _runArpScan() async {
+    setState(() => _toolsNote = 'Running ${arpScanCommand()} …');
+    final rows = await runArpScan();
+    if (!mounted) return;
+    final byIp = {for (final h in _hosts) h.ip: h};
+    for (final (ip, mac, vendor) in rows) {
+      final existing = byIp[ip];
+      byIp[ip] = ScannedHost(
+        ip: ip,
+        mac: mac,
+        hostname: existing?.hostname,
+        vendor: vendor.isEmpty ? existing?.vendor : vendor,
+        isGateway: existing?.isGateway ?? ip == _network?.gatewayIp,
+        isSelf: existing?.isSelf ?? ip == _network?.localIp,
+        openPorts: existing?.openPorts ?? const [],
+        pingMs: existing?.pingMs,
+      );
+    }
+    final merged = byIp.values.toList()
+      ..sort((a, b) => a.ip.compareTo(b.ip));
+    setState(() {
+      _hosts = merged;
+      _toolsNote = rows.isEmpty
+          ? 'arp-scan found nothing (needs root on Linux, or is not installed).'
+          : 'arp-scan found ${rows.length} device(s).';
     });
   }
 
@@ -339,7 +479,8 @@ class _HomePageState extends State<HomePage> {
         const SizedBox(height: 16),
         for (final item in kRoadmap) ...[
           CyberCard(
-            accent: item.status == RoadmapStatus.nextUp
+            accent: item.status == RoadmapStatus.shipped ||
+                    item.status == RoadmapStatus.nextUp
                 ? CyberpunkTheme.neonLime
                 : CyberpunkTheme.neonMagenta,
             child: Column(
@@ -353,12 +494,15 @@ class _HomePageState extends State<HomePage> {
                     ),
                     const SizedBox(width: 8),
                     CyberChip(
-                      item.status == RoadmapStatus.nextUp
-                          ? 'NEXT UP'
-                          : item.status == RoadmapStatus.planned
-                              ? 'PLANNED'
-                              : 'IDEA',
-                      accent: item.status == RoadmapStatus.nextUp
+                      item.status == RoadmapStatus.shipped
+                          ? 'SHIPPED'
+                          : item.status == RoadmapStatus.nextUp
+                              ? 'NEXT UP'
+                              : item.status == RoadmapStatus.planned
+                                  ? 'PLANNED'
+                                  : 'IDEA',
+                      accent: item.status == RoadmapStatus.shipped ||
+                              item.status == RoadmapStatus.nextUp
                           ? CyberpunkTheme.neonLime
                           : CyberpunkTheme.neonMagenta,
                     ),
@@ -542,19 +686,190 @@ class _HomePageState extends State<HomePage> {
   // ------------------------------------------------------------- Devices tab
   Widget _devicesTab() {
     final detection = _detection;
+    final network = _network;
+    final isDesktop =
+        Platform.isLinux || Platform.isWindows || Platform.isMacOS;
     return ListView(
       padding: const EdgeInsets.all(16),
       children: [
-        const CyberHeading('Detect your router'),
+        const CyberHeading('Scan my network'),
         const SizedBox(height: 8),
         const Text(
-          'WiHisar detects the gateway automatically (gateway IP, MAC vendor, admin-page fingerprint). Paste the admin page title if you know it — it raises the confidence score.',
+          'One tap — WiHisar finds your network itself (no gateway or SSID to type), sweeps every address, resolves names and checks open ports.',
+        ),
+        const SizedBox(height: 16),
+        CyberCard(
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(
+                network == null
+                    ? 'Network: not detected yet — tap Scan below.'
+                    : 'Network: ${network.networkAddress}/${network.prefix}',
+                style: CyberpunkTheme.display,
+              ),
+              const SizedBox(height: 4),
+              Text('This device: ${network?.localIp ?? '—'}'),
+              Text('Gateway: ${network?.gatewayLabel ?? _gatewayCtrl.text}'),
+              if (network?.ssid != null) Text('WiFi: ${network!.ssid}'),
+              if (network?.interfaceName != null)
+                Text('Interface: ${network!.interfaceName}'),
+            ],
+          ),
+        ),
+        const SizedBox(height: 16),
+        FilledButton.icon(
+          onPressed: _scanning ? null : _startScan,
+          icon: const Icon(Icons.radar),
+          label: Text(_scanning ? 'Scanning…' : 'Scan my network'),
+        ),
+        if (_scanning) ...[
+          const SizedBox(height: 12),
+          LinearProgressIndicator(value: _scanProgress),
+          const SizedBox(height: 6),
+          Text(_scanPhase),
+        ],
+        if (_scanNote.isNotEmpty) ...[
+          const SizedBox(height: 8),
+          Text(_scanNote),
+        ],
+        const SizedBox(height: 8),
+        for (final h in _hosts)
+          Card(
+            child: ListTile(
+              leading: Icon(
+                h.isGateway
+                    ? Icons.router
+                    : h.isSelf
+                        ? Icons.smartphone
+                        : Icons.devices_other,
+                color: h.looksRisky
+                    ? CyberpunkTheme.warnAmber
+                    : CyberpunkTheme.neonCyan,
+              ),
+              title: Text(
+                '${h.displayName}${h.isGateway ? '  [ROUTER]' : ''}${h.isSelf ? '  [THIS DEVICE]' : ''}${h.looksRisky ? '  [CHECK]' : ''}',
+              ),
+              subtitle: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    '${h.ip}${h.mac != null && h.mac!.isNotEmpty ? ' • ${h.mac}' : ''}${h.pingMs != null ? ' • ${h.pingMs}ms' : ''}',
+                  ),
+                  if (h.openPorts.isNotEmpty)
+                    Text(
+                      'Open: ${h.openPorts.map((p) => '${p.port} (${p.service})').join(', ')}',
+                      style: const TextStyle(
+                        color: CyberpunkTheme.warnAmber,
+                        fontSize: 12,
+                      ),
+                    ),
+                ],
+              ),
+              isThreeLine: h.openPorts.isNotEmpty,
+              onTap: () => setState(() {
+                _selectedDevice = ConnectedDevice(
+                  ip: h.ip,
+                  mac: h.mac ?? '',
+                  hostname: h.hostname,
+                  vendor: h.vendor,
+                  isGateway: h.isGateway,
+                );
+                _tab = 2;
+              }),
+            ),
+          ),
+        if (_hosts.isNotEmpty) ...[
+          const SizedBox(height: 8),
+          const Text(
+            'Tap a device to set its limit on the Limits tab. '
+            '[CHECK] means Telnet/FTP is open on that device — worth a look.',
+            style: TextStyle(color: CyberpunkTheme.textMuted),
+          ),
+        ],
+        const SizedBox(height: 24),
+        const CyberHeading('Linux tools'),
+        const SizedBox(height: 8),
+        Text(
+          isDesktop
+              ? 'Tools found on this computer. Commands run only on your own network, and the exact command is shown before it runs.'
+              : 'These tools live on the Linux / desktop build. On this phone they are not installed — the Linux build (v0.5.0) runs them.',
+        ),
+        const SizedBox(height: 12),
+        if (!_toolsChecked)
+          FilledButton.icon(
+            onPressed: _detectTools,
+            icon: const Icon(Icons.terminal),
+            label: const Text('Detect installed tools'),
+          )
+        else ...[
+          for (final tool in _tools)
+            Card(
+              child: ListTile(
+                leading: Icon(
+                  tool.available ? Icons.check_circle : Icons.cancel,
+                  color: tool.available
+                      ? CyberpunkTheme.neonLime
+                      : CyberpunkTheme.textMuted,
+                ),
+                title: Text(tool.displayName),
+                subtitle: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(tool.whatItDoes),
+                    if (tool.version != null)
+                      Text(
+                        tool.version!,
+                        style: const TextStyle(
+                          color: CyberpunkTheme.textMuted,
+                          fontSize: 12,
+                        ),
+                      ),
+                    if (tool.crackingNote != null)
+                      Text(
+                        tool.crackingNote!,
+                        style: const TextStyle(
+                          color: CyberpunkTheme.warnAmber,
+                          fontSize: 12,
+                        ),
+                      ),
+                  ],
+                ),
+                isThreeLine: true,
+              ),
+            ),
+          if (isDesktop) ...[
+            const SizedBox(height: 12),
+            FilledButton.icon(
+              onPressed: _network == null ? null : _runNmapScan,
+              icon: const Icon(Icons.radar),
+              label: Text(
+                'Run nmap ping scan (${network == null ? '…' : '${network.networkAddress}/${network.prefix}'})',
+              ),
+            ),
+            const SizedBox(height: 8),
+            FilledButton.icon(
+              onPressed: _runArpScan,
+              icon: const Icon(Icons.hub),
+              label: const Text('Run arp-scan --localnet'),
+            ),
+            if (_toolsNote.isNotEmpty) ...[
+              const SizedBox(height: 8),
+              Text(_toolsNote),
+            ],
+          ],
+        ],
+        const SizedBox(height: 24),
+        const CyberHeading('Router detect (optional)'),
+        const SizedBox(height: 8),
+        const Text(
+          'Only needed for the limiter: paste the router admin page title if you know it — it raises the confidence score. The scan above already filled in the gateway.',
         ),
         const SizedBox(height: 16),
         TextField(
           controller: _gatewayCtrl,
           decoration: const InputDecoration(
-            labelText: 'Gateway IP',
+            labelText: 'Gateway IP (auto-filled)',
             border: OutlineInputBorder(),
           ),
         ),
@@ -606,35 +921,6 @@ class _HomePageState extends State<HomePage> {
             ),
           ),
         ],
-        const SizedBox(height: 16),
-        FilledButton.icon(
-          onPressed: _scanDevices,
-          icon: const Icon(Icons.search),
-          label: const Text('Scan connected devices'),
-        ),
-        if (_scanNote.isNotEmpty) ...[
-          const SizedBox(height: 8),
-          Text(_scanNote),
-        ],
-        const SizedBox(height: 8),
-        for (final d in _devices)
-          ListTile(
-            leading: Icon(
-                d.isGateway ? Icons.router : Icons.devices_other),
-            title: Text(d.hostname ?? d.ip),
-            subtitle: Text(
-                '${d.ip} • ${d.mac}${d.vendor != null ? ' • ${d.vendor}' : ''}'),
-            onTap: () => setState(() {
-              _selectedDevice = d;
-              _tab = 2;
-            }),
-          ),
-        const SizedBox(height: 8),
-        const Text(
-          'Tip: tap a device to set its limit on the Limits tab. '
-          'On iOS, WiFi scanning is blocked by Apple — the device list comes from your router instead.',
-          style: TextStyle(color: Colors.grey),
-        ),
       ],
     );
   }

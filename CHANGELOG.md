@@ -4,6 +4,31 @@ All notable changes, newest first. Versioning: **every update bumps the
 version** and ships as a GitHub release; the in-app updater offers it from
 inside the app (banner + Roadmap tab). No silent downloads, no silent installs.
 
+## v0.3.0 — 2026-11-21
+
+### Added — auto scan (no more manual entry)
+- **Auto network detection**: the app finds your own IP, subnet and gateway
+  from the OS (routing table, else the subnet `.1` as a labelled guess) and
+  the WiFi name from the system — nothing to type.
+- **One-tap network scan** (`lib/scan/`): ping sweep of every host in the
+  subnet, ARP attach for MAC + vendor, reverse-DNS hostnames, and a TCP
+  probe of the common ports (SSH/HTTP/SMB/RTSP…) with banner grab. Live
+  progress bar, per-host open-port list, `[ROUTER]` / `[THIS DEVICE]` /
+  `[CHECK]` (Telnet/FTP open) flags. Tap a host to limit it.
+- **Linux tools layer** (`lib/tools/linux_tools.dart`): detects installed
+  tools and runs the safe, own-network commands — `nmap -sn` ping scan,
+  `nmap -sV` service scan, `arp-scan --localnet`, plus `iw` / `nmcli` /
+  `iperf3` detection. Every command is shown before it runs; desktop only.
+- **Aircrack-ng boundary**: the suite is detected and its safe check is
+  offered, but handshake capture and password cracking are NOT built into
+  WiHisar — the app says so on the card. Same own-network rule as v0.1.0.
+- `network_info_plus` dependency (SSID auto-fill).
+
+### Changed
+- Devices tab rebuilt around the auto scan; router detection kept as an
+  optional section (only needed for the limiter).
+- Roadmap: v0.3.0 marked SHIPPED, v0.4.0 Vulnerability Lab is next up.
+
 ## v0.2.0 — 2026-11-21
 
 ### Added

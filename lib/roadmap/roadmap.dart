@@ -9,6 +9,9 @@ library;
 
 /// Status of one roadmap item.
 enum RoadmapStatus {
+  /// Already shipped — shown so the user can see what landed.
+  shipped,
+
   /// Being built in the next version.
   nextUp,
 
@@ -58,14 +61,14 @@ const List<RoadmapItem> kRoadmap = [
     version: 'v0.3.0',
     title: 'IP Scanner & Port Sweep',
     summary:
-        'See everything on your own network: every IP, open port and service.',
+        'See everything on your own network: every IP, open port and service. SHIPPED — this version.',
     features: [
       'Full subnet sweep (all 254 addresses) with live host discovery',
       'Open-port scan per device with service names (HTTP, SSH, SMB…)',
       'Unknown-device alerts: a new MAC on your WiFi gets flagged',
       'Export scan results as a report',
     ],
-    status: RoadmapStatus.nextUp,
+    status: RoadmapStatus.shipped,
     honestNote:
         'Scans only the network this device is connected to — your own WiFi.',
   ),
@@ -80,7 +83,7 @@ const List<RoadmapItem> kRoadmap = [
       'Router firmware check: known CVEs for your detected router model',
       'One-tap hardening checklist generated from the findings',
     ],
-    status: RoadmapStatus.planned,
+    status: RoadmapStatus.nextUp,
     platforms: 'Linux • Windows • Android (via companion)',
     honestNote:
         'Desktop-first: nmap runs natively on Linux/Windows. On phones it runs through the WiHisar companion service, never against networks you do not own.',
@@ -127,9 +130,10 @@ const List<RoadmapItem> kRoadmap = [
   ),
 ];
 
-/// The next version to ship, used by the Roadmap tab header.
-String get nextVersion =>
-    kRoadmap.map((i) => i.version).firstWhere(
-      (v) => v == 'v0.3.0',
-      orElse: () => kRoadmap.first.version,
-    );
+/// The next version to ship: the first roadmap item that is not shipped yet.
+String get nextVersion => kRoadmap
+    .firstWhere(
+      (i) => i.status != RoadmapStatus.shipped,
+      orElse: () => kRoadmap.first,
+    )
+    .version;

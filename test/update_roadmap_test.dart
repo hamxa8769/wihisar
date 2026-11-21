@@ -110,9 +110,12 @@ void main() {
       }
     });
 
-    test('next version is v0.3.0 IP Scanner', () {
-      expect(nextVersion, 'v0.3.0');
-      expect(kRoadmap.first.title, contains('IP Scanner'));
+    test('next version is v0.4.0 Vulnerability Lab', () {
+      expect(nextVersion, 'v0.4.0');
+      expect(
+        kRoadmap.firstWhere((i) => i.version == 'v0.4.0').title,
+        contains('Vulnerability'),
+      );
     });
 
     test('every item has features and a platform note', () {
