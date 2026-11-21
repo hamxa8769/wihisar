@@ -1,8 +1,15 @@
 # WiHisar — وائی حصار (WiFi Fortress)
 
-**WiHisar v0.4.0** — a lightweight Flutter app for **Android, iOS and Windows** that tests the security of **your own WiFi** and limits bandwidth on **your own router**. Educational use only. Cyberpunk UI, true in-app update (download & install inside the app), versioned roadmap, one-tap auto network scan, Linux tools (nmap, arp-scan).
+**WiHisar v0.4.1** — a lightweight Flutter app for **Android, iOS and Windows** that tests the security of **your own WiFi** and limits bandwidth on **your own router**. Educational use only. Cyberpunk UI, true in-app update (download & install inside the app), versioned roadmap, one-tap auto network scan, Linux tools (nmap, arp-scan).
 
 > **What WiHisar is NOT:** it is not a password cracker. There is no handshake capture, no dictionary or brute-force code, no aircrack-ng / hashcat / wifite, and no code that attacks other networks. The security tester estimates the strength of a password *you* type in for *your own* network, locally on your device, and never stores or sends it.
+
+## What's new in v0.4.1 — release signing (the "App not installed" fix)
+
+- **One permanent release key** — every APK from v0.4.1 on is signed with
+  the same key, so updates install over the old app. Moving to v0.4.1
+  needs the old app uninstalled **once** (its signature is the old debug
+  key); after that, no more uninstalls — the in-app updater just works.
 
 ## What's new in v0.4.0 — true in-app update
 

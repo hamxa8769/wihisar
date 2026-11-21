@@ -4,6 +4,23 @@ All notable changes, newest first. Versioning: **every update bumps the
 version** and ships as a GitHub release; the in-app updater offers it from
 inside the app (banner + Roadmap tab). No silent downloads, no silent installs.
 
+## v0.4.1 — 2026-11-21
+
+### Fixed — release signing (the "App not installed" fix)
+- **Stable release keystore**: the APK is now signed with one permanent
+  WiHisar release key (RSA 2048, valid until 2054) instead of Flutter's
+  per-run debug key. That debug key changed on every CI build, so Android
+  refused to install a new version over the old one ("App not installed").
+- **One last uninstall**: moving from any build before v0.4.1 to v0.4.1
+  still needs the old app uninstalled once (its signature is the old
+  debug key). After v0.4.1, every update — including the in-app updater —
+  installs over the old app with no uninstall, forever, because the key
+  never changes again.
+- The release workflow now verifies the APK signature in CI (fails the
+  run if the certificate is not the WiHisar release key).
+- No code changes to the app itself in this release — same features as
+  v0.4.0, only the signature is different.
+
 ## v0.4.0 — 2026-11-21
 
 ### Added — true in-app update (no more manual downloads)
