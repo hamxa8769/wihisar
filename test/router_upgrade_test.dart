@@ -1,4 +1,5 @@
 import 'dart:convert';
+import 'dart:typed_data';
 
 import 'package:flutter_test/flutter_test.dart';
 import 'package:wihisar/router/adapters/openwrt_adapter.dart';
@@ -287,9 +288,30 @@ filter parent 1: protocol ip pref 1 u32 fh 800::800 order 2048 key ht 800 bkt 0 
     });
 
     test('probeSshFingerprint returns null for a dead host', () async {
+      // 192.0.2.1 is TEST-NET-1 — reserved, never assigned to a real
+      // host. (127.0.0.1 is NOT dead on CI runners: they run an SSH
+      // server on port 22, which is how this test failed in CI.)
       final fp = await OpenWrtAdapter()
-          .probeSshFingerprint(gatewayIp: '127.0.0.1');
+          .probeSshFingerprint(gatewayIp: '192.0.2.1');
       expect(fp, isNull);
+    });
+
+    test('decodeHostKeyFingerprint does not double-encode', () {
+      // dartssh2 hands the callback bytes already encoded as UTF-8
+      // 'SHA256:<base64>'. Decoding them is the whole job — encoding
+      // again produced 'SHA256:U0hBMjU2...' in CI, which no router
+      // fingerprint would ever match.
+      const standard = 'SHA256:1s+RaBj8H8psWY9QU2XNy9Ficc/1VNHZedVp/2JWT3P2mNQWs';
+      final callbackBytes =
+          Uint8List.fromList(utf8.encode(standard));
+      expect(
+        OpenWrtAdapter.decodeHostKeyFingerprint(callbackBytes),
+        standard,
+      );
+      expect(
+        OpenWrtAdapter.decodeHostKeyFingerprint(callbackBytes),
+        isNot(startsWith('SHA256:U0hB')),
+      );
     });
   });
 }

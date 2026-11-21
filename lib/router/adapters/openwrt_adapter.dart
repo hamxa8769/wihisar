@@ -53,11 +53,22 @@ class OpenWrtAdapter implements RouterAdapter {
         'Clearing runs `tc qdisc del dev br-lan root`, which removes ALL HTB rules on br-lan.',
       ];
 
-  /// OpenSSH-style fingerprint of a raw SHA-256 host-key digest:
-  /// `SHA256:<base64 without padding>`. This is the format
-  /// [probeSshFingerprint] returns and [setLimit] expects.
+  /// OpenSSH-style fingerprint of a RAW SHA-256 host-key digest:
+  /// `SHA256:<base64 without padding>`. Use this only for raw digests
+  /// (e.g. in tests). The dartssh2 `onVerifyHostKey` callback does NOT
+  /// hand you a raw digest — it hands you these bytes already encoded
+  /// as UTF-8 `SHA256:<base64>`, so there use [decodeHostKeyFingerprint].
   static String sshFingerprint(Uint8List digest) =>
       'SHA256:${base64Encode(digest).replaceAll('=', '')}';
+
+  /// Decode the fingerprint bytes the dartssh2 `onVerifyHostKey` callback
+  /// gives you. They are already the OpenSSH string
+  /// (`SHA256:<base64>`), UTF-8 encoded — decoding them is the whole
+  /// job. Base64-encoding them again (the old bug) produced a
+  /// double-encoded value the user could never match against the
+  /// router's own fingerprint.
+  static String decodeHostKeyFingerprint(Uint8List callbackBytes) =>
+      utf8.decode(callbackBytes);
 
   /// Parse `/tmp/dhcp.leases` content.
   /// Format per line: `<expiry> <mac> <ip> <hostname> <client-id>`
@@ -151,7 +162,7 @@ class OpenWrtAdapter implements RouterAdapter {
         username: credentials.username,
         onPasswordRequest: () => credentials.password,
         onVerifyHostKey: (type, fingerprint) =>
-            sshFingerprint(fingerprint) == expectedFingerprint,
+            decodeHostKeyFingerprint(fingerprint) == expectedFingerprint,
         handshakeTimeout: const Duration(seconds: 10),
         authTimeout: const Duration(seconds: 10),
       );
@@ -192,7 +203,7 @@ class OpenWrtAdapter implements RouterAdapter {
         socket,
         username: 'root',
         onVerifyHostKey: (type, fingerprint) {
-          final fp = sshFingerprint(fingerprint);
+          final fp = decodeHostKeyFingerprint(fingerprint);
           if (!completer.isCompleted) completer.complete(fp);
           return true;
         },
