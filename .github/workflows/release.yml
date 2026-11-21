@@ -62,8 +62,10 @@ jobs:
         run: flutter build apk --release
       - name: Verify release signature (must be the WiHisar key, not debug)
         run: |
-          keytool -printcert -jarfile "build/app/outputs/flutter-apk/app-release.apk" | tee /tmp/cert.txt
-          grep -q "CN=WiHisar" /tmp/cert.txt
+          SDK="${ANDROID_HOME:-/usr/local/lib/android/sdk}"
+          APKSIGNER=$(ls "$SDK"/build-tools/*/apksigner | head -n 1)
+          "$APKSIGNER" verify --print-certs "build/app/outputs/flutter-apk/app-release.apk" | tee /tmp/certs.txt
+          grep -q "CN=WiHisar" /tmp/certs.txt
       - name: Rename APK
         run: |
           cp build/app/outputs/flutter-apk/app-release.apk \
