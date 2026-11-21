@@ -1,3 +1,4 @@
+// ignore_for_file: deprecated_member_use
 /// WiHisar v0.2.0 — own-WiFi security tester + bandwidth limiter.
 ///
 /// Educational, own-router only. No password cracking of any kind: the

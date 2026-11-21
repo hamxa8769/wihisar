@@ -1,3 +1,4 @@
+// ignore_for_file: deprecated_member_use
 /// Small cyberpunk widgets shared by the tabs: neon cards, section
 /// headings and status chips. Pure Flutter, no assets.
 library;

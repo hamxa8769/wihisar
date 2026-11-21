@@ -1,3 +1,4 @@
+// ignore_for_file: deprecated_member_use
 /// WiHisar cyberpunk theme — dark, neon, futuristic, still lightweight.
 ///
 /// No custom fonts and no image assets: the look comes from colour,
@@ -35,7 +36,7 @@ class CyberpunkTheme {
 
   static ThemeData get dark {
     final base = ThemeData.dark(useMaterial3: true);
-    final scheme = const ColorScheme.dark(
+    const scheme = ColorScheme.dark(
       primary: neonCyan,
       secondary: neonMagenta,
       tertiary: neonLime,
