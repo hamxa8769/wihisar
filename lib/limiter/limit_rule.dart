@@ -43,6 +43,15 @@ class LimitRule {
         'enabled': enabled,
       };
 
+  factory LimitRule.fromJson(Map<String, dynamic> json) => LimitRule(
+        deviceMac: json['mac'] as String? ?? '',
+        deviceIp: json['ip'] as String? ?? '',
+        deviceLabel: json['label'] as String? ?? '',
+        downMbps: (json['downMbps'] as num?)?.toDouble() ?? 0,
+        upMbps: (json['upMbps'] as num?)?.toDouble() ?? 0,
+        enabled: json['enabled'] as bool? ?? true,
+      );
+
   LimitRule copyWith({double? downMbps, double? upMbps, bool? enabled}) =>
       LimitRule(
         deviceMac: deviceMac,

@@ -105,7 +105,10 @@ PORT    STATE SERVICE VERSION
 ''';
       expect(
         parseNmapServicePorts(out),
-        [(22, 'ssh'), (80, 'http')],
+        [
+          (port: 22, service: 'ssh', version: 'OpenSSH 8.9p1'),
+          (port: 80, service: 'http', version: 'nginx'),
+        ],
       );
     });
 

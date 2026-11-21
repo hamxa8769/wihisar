@@ -47,8 +47,10 @@ class GenericAdapter implements RouterAdapter {
     required String gatewayIp,
     required RouterCredentials credentials,
     required String deviceMac,
+    String? deviceIp,
     required double downMbps,
     required double upMbps,
+    String? expectedFingerprint,
   }) async {
     return LimitResult.unsupported(
       'This router was not recognised, so WiHisar has no limiter API for it '
@@ -58,10 +60,25 @@ class GenericAdapter implements RouterAdapter {
   }
 
   @override
+  Future<LimitResult> verifyLimit({
+    required String gatewayIp,
+    required RouterCredentials credentials,
+    required String deviceMac,
+    String? deviceIp,
+    String? expectedFingerprint,
+  }) async {
+    return LimitResult.unsupported(
+      'This router was not recognised, so WiHisar cannot verify whether a limit is in force.',
+    );
+  }
+
+  @override
   Future<LimitResult> clearLimit({
     required String gatewayIp,
     required RouterCredentials credentials,
     required String deviceMac,
+    String? deviceIp,
+    String? expectedFingerprint,
   }) async {
     return LimitResult.unsupported(
       'No limit was applied by WiHisar on this router, so there is nothing to clear.',

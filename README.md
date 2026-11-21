@@ -1,8 +1,16 @@
 # WiHisar — وائی حصار (WiFi Fortress)
 
-**WiHisar v0.4.1** — a lightweight Flutter app for **Android, iOS and Windows** that tests the security of **your own WiFi** and limits bandwidth on **your own router**. Educational use only. Cyberpunk UI, true in-app update (download & install inside the app), versioned roadmap, one-tap auto network scan, Linux tools (nmap, arp-scan).
+**WiHisar v0.5.0** — a lightweight Flutter app for **Android, iOS and Windows** that tests the security of **your own WiFi** and limits bandwidth on **your own router**. Educational use only. Cyberpunk UI, true in-app update (download & install inside the app), versioned roadmap, one-tap auto network scan, Linux tools (nmap, arp-scan).
 
 > **What WiHisar is NOT:** it is not a password cracker. There is no handshake capture, no dictionary or brute-force code, no aircrack-ng / hashcat / wifite, and no code that attacks other networks. The security tester estimates the strength of a password *you* type in for *your own* network, locally on your device, and never stores or sends it.
+
+## What's new in v0.5.0 — professional robustness upgrade
+
+- **Scanning finds silent devices** — the ARP cache is primed before reading, the real subnet prefix is read from the OS (not assumed /24), the mobile gateway comes from the OS WiFi info, reverse-DNS and port probes run in parallel, and scans can be cancelled. A gateway that ignored ping was found live in testing.
+- **New-device alerts** — a MAC never seen before is flagged NEW, and last-seen devices are remembered so the flag survives restarts.
+- **Router auto-detect** — the gateway admin page is read automatically after the network is found; no manual title/header entry.
+- **Real limiter** — OpenWrt limits apply over SSH (fingerprint shown and confirmed first, `tc` result verified); TP-Link login fixed (MD5 password) and QoS rules are verified against the router before the app claims success; V-SOL form login added. Limit rules are saved on the device.
+- **Linux tools completed** — nmap `-sV` deep scan wired in, arp-scan/nmap return real errors with install commands, iperf3 speed test, nmcli WiFi scan, tshark protocol summary, Windows `where` lookup fixed.
 
 ## What's new in v0.4.1 — release signing (the "App not installed" fix)
 
@@ -59,10 +67,12 @@
 | 9 | Versioned roadmap inside the app | ✅ Live |
 | 10 | IP scanner & port sweep — auto subnet sweep, open ports, live progress | ✅ Live in v0.3.0 |
 | 11 | Linux tools — nmap, arp-scan, iw, nmcli, iperf3 detection + run | ✅ Live in v0.3.0 (desktop) |
-| 12 | Vulnerability Lab — nmap vuln scripts, weak-service + router CVE checks | 🔜 v0.5.0 |
-| 13 | Linux companion app + CLI, one-click tool install | 🔜 v0.6.0 |
-| 14 | Smart limiter v2 — verified TP-Link QoS, schedules, usage history | 🔜 v0.7.0 |
-| 15 | Family network profiles, guest QR, weekly report | 🔜 v0.8.0 |
+| 12 | Robust scanning — ARP priming, real prefix, parallel probes, cancel, new-device alerts, router auto-detect | ✅ Live in v0.5.0 |
+| 13 | Real limiter — OpenWrt SSH apply + TP-Link QoS verified, saved rules | ✅ Live in v0.5.0 |
+| 14 | Linux tools completed — nmap -sV deep scan, iperf3, nmcli, tshark, install commands, real errors | ✅ Live in v0.5.0 (desktop) |
+| 15 | Vulnerability Lab — nmap vuln scripts, weak-service + router CVE checks | 🔜 v0.6.0 |
+| 16 | Linux companion app + CLI, one-click tool install | 🔜 v0.7.0 |
+| 17 | Family network profiles, guest QR, weekly report | 🔜 v0.8.0 |
 
 ## Roadmap
 
@@ -70,9 +80,9 @@
 |---------|---------|-----------|
 | v0.3.0 | IP Scanner & Port Sweep — full subnet sweep, open ports + services, unknown-device alerts, report export | Android • iOS • Windows | ✅ Shipped |
 | v0.4.0 | True in-app update — download & install inside the app (Android system installer, Windows restart) | Android • Windows | ✅ Shipped |
-| v0.5.0 | Vulnerability Lab — nmap OS detection + vuln scripts, weak-service detector, router firmware CVE check, hardening checklist | Linux • Windows • Android (via companion) |
-| v0.6.0 | Linux companion & CLI — native Linux build, `wihisar` terminal tool, one-click install of nmap / arp-scan / iperf3, scheduled scans + history | Linux |
-| v0.7.0 | Smart limiter v2 — verified TP-Link QoS per model, time-based limits, per-device usage + data caps, OpenWrt one-tap apply | Android • iOS • Windows |
+| v0.5.0 | Professional robustness upgrade — scanning that finds silent devices, real limiter (OpenWrt SSH + TP-Link QoS verified), Linux tools completed, new-device alerts, router auto-detect | Android • iOS • Windows • Linux | ✅ Shipped |
+| v0.6.0 | Vulnerability Lab — nmap OS detection + vuln scripts, weak-service detector, router firmware CVE check, hardening checklist | Linux • Windows • Android (via companion) |
+| v0.7.0 | Linux companion & CLI — native Linux build, `wihisar` terminal tool, one-click install of nmap / arp-scan / iperf3, scheduled scans + history | Linux |
 | v0.8.0 | Family network profiles — devices per person, guest-network QR, weekly security report | Android • iOS • Windows |
 
 All future tools are for **your own network only**, same rule as v0.1.0.

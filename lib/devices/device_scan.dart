@@ -120,6 +120,30 @@ String subnetPrefixOf(String ip) {
 /// found in the ARP table (empty list — never an exception — on failure,
 /// so the UI can show an honest empty state).
 class SubnetScanner {
+  /// Touch every host once (TCP connect to port 80, 150 ms) so the OS
+  /// resolves and caches their MAC addresses before [readNeighbourTable].
+  /// The point is the ARP traffic, not the connection — every error is
+  /// ignored. Batches of 64 so we never open hundreds of sockets at once.
+  /// Call this before [readNeighbourTable]; without it the table only
+  /// holds hosts the OS happened to talk to already.
+  Future<void> primeNeighbourCache(List<String> hosts) async {
+    for (var i = 0; i < hosts.length; i += 64) {
+      final batch = hosts.skip(i).take(64).map((ip) async {
+        try {
+          final socket = await Socket.connect(
+            ip,
+            80,
+            timeout: const Duration(milliseconds: 150),
+          );
+          socket.destroy();
+        } catch (_) {
+          // Silent host — the ARP request still went out.
+        }
+      });
+      await Future.wait(batch);
+    }
+  }
+
   /// Read the OS neighbour table and parse it for the current platform.
   Future<List<ConnectedDevice>> readNeighbourTable() async {
     try {

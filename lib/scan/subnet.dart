@@ -108,3 +108,104 @@ String? parseBsdDefaultRoute(String output) {
   }
   return null;
 }
+
+/// Dotted-decimal netmask (e.g. `255.255.255.0`) to CIDR prefix (24).
+/// Returns -1 for an invalid or non-contiguous mask.
+int netmaskToPrefix(String mask) {
+  final octets = parseIpv4(mask);
+  if (octets.isEmpty) return -1;
+  var bits = 0;
+  var seenZero = false;
+  for (final o in octets) {
+    for (var b = 7; b >= 0; b--) {
+      if ((o >> b) & 1 == 1) {
+        if (seenZero) return -1;
+        bits++;
+      } else {
+        seenZero = true;
+      }
+    }
+  }
+  return bits;
+}
+
+/// Hex netmask as printed by macOS `ifconfig` (e.g. `0xffffff00`) to CIDR
+/// prefix (24). Returns -1 for an invalid or non-contiguous mask.
+int hexNetmaskToPrefix(String hex) {
+  final digits = hex.startsWith('0x') ? hex.substring(2) : hex;
+  final value = int.tryParse(digits, radix: 16);
+  if (value == null || value < 0 || value > 0xFFFFFFFF) return -1;
+  var bits = 0;
+  var seenZero = false;
+  for (var b = 31; b >= 0; b--) {
+    if ((value >> b) & 1 == 1) {
+      if (seenZero) return -1;
+      bits++;
+    } else {
+      seenZero = true;
+    }
+  }
+  return bits;
+}
+
+/// Parse Linux `ip addr show` output into {ip: prefix}.
+/// Example line: `    inet 192.168.1.5/24 brd 192.168.1.255 scope global wlan0`
+Map<String, int> parseLinuxIpAddr(String output) {
+  final result = <String, int>{};
+  for (final line in output.split('\n')) {
+    final m = RegExp(r'inet\s+(\d+\.\d+\.\d+\.\d+)/(\d+)').firstMatch(line);
+    if (m != null) {
+      final prefix = int.tryParse(m.group(2)!);
+      if (prefix != null && prefix >= 0 && prefix <= 32) {
+        result[m.group(1)!] = prefix;
+      }
+    }
+  }
+  return result;
+}
+
+/// Parse Windows `ipconfig` output into {ip: prefix}.
+/// Each adapter block has an `IPv4 Address` line followed by a
+/// `Subnet Mask` line; the two are paired in order.
+/// Example:
+/// `   IPv4 Address. . . . . . . . . . . : 192.168.1.5`
+/// `   Subnet Mask . . . . . . . . . . . : 255.255.255.0`
+Map<String, int> parseWindowsIpconfig(String output) {
+  final result = <String, int>{};
+  String? pendingIp;
+  for (final line in output.split('\n')) {
+    final ipMatch =
+        RegExp(r'IPv4 Address[^:]*:\s*(\d+\.\d+\.\d+\.\d+)').firstMatch(line);
+    if (ipMatch != null) {
+      pendingIp = ipMatch.group(1);
+      continue;
+    }
+    final maskMatch =
+        RegExp(r'Subnet Mask[^:]*:\s*(\d+\.\d+\.\d+\.\d+)').firstMatch(line);
+    if (maskMatch != null && pendingIp != null) {
+      final prefix = netmaskToPrefix(maskMatch.group(1)!);
+      if (prefix >= 0) result[pendingIp] = prefix;
+      pendingIp = null;
+    }
+  }
+  return result;
+}
+
+/// Parse macOS/BSD `ifconfig` output into {ip: prefix}.
+/// Example line: `	inet 192.168.1.5 netmask 0xffffff00 broadcast 192.168.1.255`
+Map<String, int> parseBsdIfconfig(String output) {
+  final result = <String, int>{};
+  for (final line in output.split('\n')) {
+    final m = RegExp(
+      r'inet\s+(\d+\.\d+\.\d+\.\d+)\s+netmask\s+(0x[0-9a-fA-F]+|\d+\.\d+\.\d+\.\d+)',
+    ).firstMatch(line);
+    if (m != null) {
+      final mask = m.group(2)!;
+      final prefix = mask.startsWith('0x')
+          ? hexNetmaskToPrefix(mask)
+          : netmaskToPrefix(mask);
+      if (prefix >= 0) result[m.group(1)!] = prefix;
+    }
+  }
+  return result;
+}

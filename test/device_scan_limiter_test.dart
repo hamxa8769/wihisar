@@ -1,4 +1,5 @@
 import 'package:flutter_test/flutter_test.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 import 'package:wihisar/devices/device_scan.dart';
 import 'package:wihisar/limiter/limit_rule.dart';
 import 'package:wihisar/limiter/limiter_service.dart';
@@ -8,6 +9,8 @@ import 'package:wihisar/router/adapters/vsol_adapter.dart';
 import 'package:wihisar/router/router_adapter.dart';
 
 void main() {
+  // LimiterService now persists rules with SharedPreferences.
+  setUp(() => SharedPreferences.setMockInitialValues({}));
   group('ARP parsers', () {
     test('parses Linux ip neigh output', () {
       const out = '''

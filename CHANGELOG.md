@@ -4,6 +4,18 @@ All notable changes, newest first. Versioning: **every update bumps the
 version** and ships as a GitHub release; the in-app updater offers it from
 inside the app (banner + Roadmap tab). No silent downloads, no silent installs.
 
+## v0.5.0 — 2026-11-21
+
+### Changed — professional robustness upgrade (scanning, limiter, Linux tools)
+- **Scanning finds silent devices**: the ARP cache is now primed before reading (devices that ignore ping are found), the real subnet prefix is read from the OS instead of assuming /24, mobile gateway comes from the OS WiFi info, reverse-DNS and port probes run in parallel, and scans can be cancelled.
+- **New-device alerts**: a MAC never seen before is flagged NEW; last-seen devices are remembered on the phone so the flag survives restarts.
+- **Router auto-detect**: the gateway page title + Server header are read automatically after the network is found — no manual fields needed.
+- **Real limiter**: OpenWrt limits are actually applied over SSH (fingerprint shown and confirmed first, `tc` result verified); TP-Link login fixed (MD5 password) and QoS rules are verified against the router before the app claims success; V-SOL form login added so its DHCP list works on more firmwares. Limit rules are saved on the device.
+- **Linux tools completed**: nmap `-sV` deep scan wired into the results, arp-scan + nmap return real errors (not silent empty lists), iperf3 speed test, nmcli WiFi scan, tshark protocol summary, and install commands for every missing tool (Windows `where` lookup fixed).
+- **Device identification**: much bigger offline vendor table, device-kind guessing (camera/printer/phone/computer) from vendor + open ports, wider risk flags (Telnet/FTP/RDP/VNC).
+- **Verified live**: the new scan engine was run against a real network — it read the true /30 prefix (not the old /24 assumption), found a gateway that ignored ping via ARP priming, and finished in under half a second. Missing Linux tools now report a clear error with the install command instead of a silent empty list.
+- Tests: flutter test 153/153 passed, flutter analyze clean (No issues found!).
+
 ## v0.4.1 — 2026-11-21
 
 ### Fixed — release signing (the "App not installed" fix)

@@ -17,8 +17,61 @@
 /// network access.
 library;
 
+import 'dart:convert';
+import 'dart:io';
+
 import 'oui.dart';
 import 'router_profile.dart';
+
+/// Extract the <title> of an HTML page, or null when there is none.
+/// Collapses internal whitespace; returns null for an empty title.
+String? parseHtmlTitle(String html) {
+  final m = RegExp(
+    r'<title[^>]*>(.*?)</title>',
+    caseSensitive: false,
+    dotAll: true,
+  ).firstMatch(html);
+  if (m == null) return null;
+  final title = m.group(1)!.replaceAll(RegExp(r'\s+'), ' ').trim();
+  return title.isEmpty ? null : title;
+}
+
+/// Detect the router at [gatewayIp] by fetching its admin page (4 s
+/// timeout) and scoring the HTTP fingerprint (page title + Server header)
+/// plus the gateway MAC vendor when [gatewayMac] is known. Never throws:
+/// on any failure it returns a low-confidence generic detection.
+Future<RouterDetection> detectRouterAutomatically({
+  required String gatewayIp,
+  String? gatewayMac,
+}) async {
+  String? title;
+  String? server;
+  try {
+    final client = HttpClient()..connectionTimeout = const Duration(seconds: 4);
+    final req = await client
+        .getUrl(Uri.parse('http://$gatewayIp/'))
+        .timeout(const Duration(seconds: 4));
+    final resp = await req.close().timeout(const Duration(seconds: 4));
+    server = resp.headers.value('server');
+    final body =
+        await resp.transform(utf8.decoder).join().timeout(const Duration(seconds: 4));
+    client.close();
+    title = parseHtmlTitle(body);
+  } catch (_) {
+    // No HTTP fingerprint — the scorer reports a weak generic guess.
+  }
+  final vendor = gatewayMac == null ? null : vendorForMac(gatewayMac);
+  return detectFromFingerprint(
+    gatewayIp: gatewayIp,
+    fingerprint: Fingerprint(
+      gatewayIp: gatewayIp,
+      pageTitle: title,
+      serverHeader: server,
+      ouiVendor: vendor == 'Unknown vendor' ? null : vendor,
+    ),
+    gatewayMac: gatewayMac,
+  );
+}
 
 /// One piece of detection evidence.
 class DetectionEvidence {

@@ -76,7 +76,7 @@ const List<RoadmapItem> kRoadmap = [
     version: 'v0.4.0',
     title: 'True in-app update',
     summary:
-        'No more manual downloads: tap update in the app and it downloads and installs itself. SHIPPED — this version.',
+        'No more manual downloads: tap update in the app and it downloads and installs itself. SHIPPED.',
     features: [
       'Android: APK downloads in the app, system installer opens',
       'Windows: zip downloads, extracts, app restarts on the new version',
@@ -89,6 +89,23 @@ const List<RoadmapItem> kRoadmap = [
   ),
   RoadmapItem(
     version: 'v0.5.0',
+    title: 'Professional robustness upgrade',
+    summary:
+        'Scanning that finds silent devices, a limiter that really enforces, and Linux tools wired end-to-end. SHIPPED — this version.',
+    features: [
+      'Scan finds devices that ignore ping (ARP priming + real subnet prefix + parallel probes)',
+      'New-device alerts: a MAC never seen before gets flagged',
+      'Router auto-detect: gateway page title + Server header read automatically',
+      'Real limiter: OpenWrt SSH apply with fingerprint check, TP-Link QoS verified against the router',
+      'Linux tools complete: nmap -sV deep scan, arp-scan, iperf3 speed test, nmcli WiFi scan, tshark summary, install commands',
+      'Limit rules saved on the device — they survive an app restart',
+    ],
+    status: RoadmapStatus.shipped,
+    honestNote:
+        'V-SOL still has no limiter API — the app says so and shows the bridge-mode path instead of faking a limit.',
+  ),
+  RoadmapItem(
+    version: 'v0.6.0',
     title: 'Vulnerability Lab — Linux tools, inside the app',
     summary:
         'Own-network vulnerability checks powered by the Linux tools professionals use.',
@@ -104,7 +121,7 @@ const List<RoadmapItem> kRoadmap = [
         'Desktop-first: nmap runs natively on Linux/Windows. On phones it runs through the WiHisar companion service, never against networks you do not own.',
   ),
   RoadmapItem(
-    version: 'v0.6.0',
+    version: 'v0.7.0',
     title: 'Linux companion & CLI',
     summary: 'WiHisar as a Linux app and terminal tool — the full toolbox.',
     features: [
@@ -117,20 +134,6 @@ const List<RoadmapItem> kRoadmap = [
     platforms: 'Linux',
     honestNote:
         'Tools are installed only with your permission, from your distro\'s own packages.',
-  ),
-  RoadmapItem(
-    version: 'v0.7.0',
-    title: 'Smart limiter v2',
-    summary: 'Limits that actually work on more routers, with schedules.',
-    features: [
-      'Verified TP-Link QoS profiles per exact model + firmware',
-      'Time-based limits: kids\' devices slow down at bedtime, automatically',
-      'Per-device usage history and data caps',
-      'OpenWrt one-tap apply (SSH with your approval, shown before running)',
-    ],
-    status: RoadmapStatus.idea,
-    honestNote:
-        'V-SOL and most ONU web UIs expose no limiter API — v0.7.0 still will not fake it. Where the router cannot limit, the OpenWrt-bridge path is the answer.',
   ),
   RoadmapItem(
     version: 'v0.8.0',

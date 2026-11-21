@@ -1,13 +1,14 @@
 // ignore_for_file: deprecated_member_use
-/// WiHisar v0.3.0 — own-WiFi security tester + bandwidth limiter.
+/// WiHisar v0.5.0 — own-WiFi security tester + bandwidth limiter.
 ///
 /// Educational, own-router only. No password cracking of any kind: the
 /// security test estimates the strength of a password the user types in
 /// for THEIR OWN network, locally, and never stores or sends it.
 ///
-/// v0.3.0: auto scanner (no manual gateway/SSID entry — the app finds
-/// your network itself) + Linux tools layer (nmap, arp-scan, iw, nmcli,
-/// iperf3; aircrack-ng detected only, cracking NOT built).
+/// v0.5.0: professional robustness upgrade — scanning that finds silent
+/// devices, a limiter that really enforces (OpenWrt SSH, TP-Link QoS
+/// verified), Linux tools wired end-to-end, new-device alerts, router
+/// auto-detect.
 library;
 
 import 'dart:io' show Platform;
@@ -21,10 +22,13 @@ import 'limiter/limit_rule.dart';
 import 'limiter/limiter_service.dart';
 import 'roadmap/roadmap.dart';
 import 'router/adapters/generic_adapter.dart';
+import 'router/adapters/openwrt_adapter.dart';
+import 'router/adapters/tplink_adapter.dart';
 import 'router/router_adapter.dart';
 import 'router/router_detect.dart';
 import 'scan/auto_scan.dart';
 import 'scan/host.dart';
+import 'scan/scan_history.dart';
 import 'security/security_tester.dart';
 import 'theme/cyberpunk_theme.dart';
 import 'tools/linux_tools.dart';
@@ -70,15 +74,21 @@ class _HomePageState extends State<HomePage> {
   final _gatewayCtrl = TextEditingController(text: '192.168.1.1');
   final _titleCtrl = TextEditingController();
   final _serverCtrl = TextEditingController();
+  final _iperfServerCtrl = TextEditingController();
+  final _tsharkIfaceCtrl = TextEditingController();
   RouterDetection? _detection;
   LocalNetwork? _network;
   List<ScannedHost> _hosts = [];
   bool _scanning = false;
+  bool _cancelScan = false;
   double _scanProgress = 0;
   String _scanPhase = '';
   String _scanNote = '';
+  final _scanHistory = ScanHistory();
+  Set<String> _newMacs = {};
   List<LinuxTool> _tools = [];
   bool _toolsChecked = false;
+  bool _toolsBusy = false;
   String _toolsNote = '';
 
   // --- In-app updater state ---
@@ -92,6 +102,10 @@ class _HomePageState extends State<HomePage> {
   void initState() {
     super.initState();
     _checkForUpdate(silent: true);
+    _limiter.loadRules().then((_) {
+      if (mounted) setState(() {});
+    });
+    _scanHistory.load();
     _detectNetwork();
   }
 
@@ -187,6 +201,13 @@ class _HomePageState extends State<HomePage> {
   String _limitNote = '';
   final _routerUserCtrl = TextEditingController(text: 'admin');
   final _routerPassCtrl = TextEditingController();
+  final _limiter = LimiterService(GenericAdapter());
+  TpLinkProbe? _tplinkProbe;
+  bool _probingTplink = false;
+  String? _sshFingerprint;
+  bool _sshFingerprintConfirmed = false;
+  bool _probingSsh = false;
+  String _sshNote = '';
 
   RouterAdapter get _adapter => _detection == null
       ? GenericAdapter()
@@ -202,6 +223,8 @@ class _HomePageState extends State<HomePage> {
     _gatewayCtrl.dispose();
     _titleCtrl.dispose();
     _serverCtrl.dispose();
+    _iperfServerCtrl.dispose();
+    _tsharkIfaceCtrl.dispose();
     _routerUserCtrl.dispose();
     _routerPassCtrl.dispose();
     super.dispose();
@@ -239,23 +262,46 @@ class _HomePageState extends State<HomePage> {
         gatewayIp: _gatewayCtrl.text.trim(),
         fingerprint: fp,
       );
+      _limiter.adapter = _adapter;
     });
   }
 
   /// Find the network this device is on — no manual entry. Fills the SSID
   /// (Test tab) and gateway (Devices tab) automatically. Best effort: if
   /// the OS will not tell us, the fields stay editable by hand.
+  /// On phones the gateway comes from the OS WiFi info (the routing
+  /// table is often unreadable from an app sandbox); the router is then
+  /// auto-detected from its own admin page.
   Future<void> _detectNetwork() async {
     String? ssid;
+    String? wifiGateway;
     try {
       ssid = await NetworkInfo().getWifiName();
       if (ssid != null) ssid = ssid.replaceAll('"', '').trim();
     } catch (_) {
       // SSID unavailable on this device — user can type it.
     }
-    final network = await AutoScanner().detectLocalNetwork(
+    try {
+      wifiGateway = await NetworkInfo().getWifiGatewayIP();
+    } catch (_) {
+      // Gateway unavailable — the route-table path below covers it.
+    }
+    var network = await AutoScanner().detectLocalNetwork(
       ssidOverride: ssid,
     );
+    if (network != null &&
+        !network.gatewayFromRoute &&
+        wifiGateway != null &&
+        wifiGateway.isNotEmpty) {
+      network = LocalNetwork(
+        localIp: network.localIp,
+        prefix: network.prefix,
+        gatewayIp: wifiGateway,
+        gatewayFromRoute: true,
+        ssid: network.ssid,
+        interfaceName: network.interfaceName,
+      );
+    }
     if (!mounted) return;
     setState(() {
       _network = network;
@@ -266,16 +312,43 @@ class _HomePageState extends State<HomePage> {
         }
       }
     });
+    await _autoDetectRouter();
+  }
+
+  /// Read the router's own admin page (title + Server header) and detect
+  /// the vendor automatically — no manual fields needed. Never throws;
+  /// on failure the previous detection (if any) stays.
+  Future<void> _autoDetectRouter() async {
+    final gw = _network?.gatewayIp ?? _gatewayCtrl.text.trim();
+    if (gw.isEmpty) return;
+    String? gwMac;
+    for (final h in _hosts) {
+      if (h.isGateway && h.mac != null && h.mac!.isNotEmpty) {
+        gwMac = h.mac;
+      }
+    }
+    final detection = await detectRouterAutomatically(
+      gatewayIp: gw,
+      gatewayMac: gwMac,
+    );
+    if (!mounted) return;
+    setState(() {
+      _detection = detection;
+      _limiter.adapter = _adapter;
+    });
   }
 
   /// One-tap scan: finds the network (if not found yet), sweeps every host,
-  /// resolves names, probes ports, and checks the Linux tools.
+  /// resolves names, probes ports, and checks the Linux tools. Cancellable,
+  /// and flags devices never seen before as NEW.
   Future<void> _startScan() async {
     if (_scanning) return;
     setState(() {
       _scanning = true;
+      _cancelScan = false;
       _scanNote = '';
       _hosts = [];
+      _newMacs = {};
     });
     var network = _network;
     network ??= await AutoScanner().detectLocalNetwork();
@@ -302,16 +375,26 @@ class _HomePageState extends State<HomePage> {
           _scanPhase = phase;
         });
       },
+      isCancelled: () => _cancelScan,
     );
     if (!mounted) return;
+    // New-device check BEFORE recording this scan, or nothing is ever new.
+    final fresh = _scanHistory.newMacs(hosts);
+    await _scanHistory.recordScan(hosts);
+    final risky = hosts.where((h) => h.looksRisky).length;
     setState(() {
       _hosts = hosts;
+      _newMacs = fresh;
       _scanning = false;
       _scanPhase = '';
       _scanNote = hosts.isEmpty
           ? 'No devices found. On this device the scan may need local-network permission — try the router DHCP list instead.'
-          : 'Found ${hosts.length} device(s) on ${network!.networkAddress}/${network.prefix}.';
+          : 'Found ${hosts.length} device(s) on ${network!.networkAddress}/${network.prefix}'
+              '${fresh.isNotEmpty ? ' • ${fresh.length} NEW' : ''}'
+              '${risky > 0 ? ' • $risky need a check' : ''}'
+              '${_cancelScan ? ' (cancelled)' : ''}.';
     });
+    await _autoDetectRouter();
     await _detectTools();
   }
 
@@ -325,13 +408,26 @@ class _HomePageState extends State<HomePage> {
   }
 
   /// Run nmap's ping scan on our own subnet (desktop only) and merge any
-  /// hosts it finds that the built-in scan missed.
+  /// hosts it finds that the built-in scan missed. Real errors are shown
+  /// (not a silent empty list) with the install command when nmap is missing.
   Future<void> _runNmapScan() async {
     final network = _network;
-    if (network == null) return;
-    setState(() => _toolsNote = 'Running ${nmapPingScanCommand('${network.networkAddress}/${network.prefix}')} …');
-    final ips = await runNmapPingScan('${network.networkAddress}/${network.prefix}');
+    if (network == null || _toolsBusy) return;
+    final cidr = '${network.networkAddress}/${network.prefix}';
+    setState(() {
+      _toolsBusy = true;
+      _toolsNote = 'Running ${nmapPingScanCommand(cidr)} …';
+    });
+    final result = await runNmapPingScanDetailed(cidr);
     if (!mounted) return;
+    if (result.error != null) {
+      setState(() {
+        _toolsBusy = false;
+        _toolsNote = '${result.error} ${installCommandFor('nmap') ?? ''}';
+      });
+      return;
+    }
+    final ips = result.data ?? const [];
     final known = _hosts.map((h) => h.ip).toSet();
     final extra = ips.where((ip) => !known.contains(ip)).map(
           (ip) => ScannedHost(
@@ -341,23 +437,35 @@ class _HomePageState extends State<HomePage> {
           ),
         );
     setState(() {
-      _hosts = [..._hosts, ...extra]
-        ..sort((a, b) => a.ip.compareTo(b.ip));
+      _hosts = mergeHosts(_hosts, extra.toList());
+      _toolsBusy = false;
       _toolsNote = ips.isEmpty
-          ? 'nmap found no live hosts (is nmap installed?).'
+          ? 'nmap found no live hosts on $cidr.'
           : 'nmap found ${ips.length} live host(s).';
     });
   }
 
   /// Run arp-scan on the local network (desktop only) and merge results.
   Future<void> _runArpScan() async {
-    setState(() => _toolsNote = 'Running ${arpScanCommand()} …');
-    final rows = await runArpScan();
+    if (_toolsBusy) return;
+    setState(() {
+      _toolsBusy = true;
+      _toolsNote = 'Running ${arpScanCommand()} …';
+    });
+    final result = await runArpScanDetailed();
     if (!mounted) return;
-    final byIp = {for (final h in _hosts) h.ip: h};
-    for (final (ip, mac, vendor) in rows) {
-      final existing = byIp[ip];
-      byIp[ip] = ScannedHost(
+    if (result.error != null) {
+      setState(() {
+        _toolsBusy = false;
+        _toolsNote = '${result.error} ${installCommandFor('arp-scan') ?? ''}';
+      });
+      return;
+    }
+    final rows = result.data ?? const [];
+    final extra = rows.map((row) {
+      final (ip, mac, vendor) = row;
+      final existing = _hosts.where((h) => h.ip == ip).firstOrNull;
+      return ScannedHost(
         ip: ip,
         mac: mac,
         hostname: existing?.hostname,
@@ -367,22 +475,194 @@ class _HomePageState extends State<HomePage> {
         openPorts: existing?.openPorts ?? const [],
         pingMs: existing?.pingMs,
       );
-    }
-    final merged = byIp.values.toList()
-      ..sort((a, b) => a.ip.compareTo(b.ip));
+    }).toList();
     setState(() {
-      _hosts = merged;
+      _hosts = mergeHosts(_hosts, extra);
+      _toolsBusy = false;
       _toolsNote = rows.isEmpty
-          ? 'arp-scan found nothing (needs root on Linux, or is not installed).'
+          ? 'arp-scan found nothing.'
           : 'arp-scan found ${rows.length} device(s).';
+    });
+  }
+
+  /// Deep scan: nmap -sV on every found host (desktop only) — service
+  /// names AND versions, merged into the host cards.
+  Future<void> _runDeepScan() async {
+    if (_hosts.isEmpty || _toolsBusy) return;
+    setState(() {
+      _toolsBusy = true;
+      _toolsNote = 'Running nmap -sV on ${_hosts.length} host(s)…';
+    });
+    final extra = <ScannedHost>[];
+    String? error;
+    for (var i = 0; i < _hosts.length; i += 4) {
+      final batch = _hosts.skip(i).take(4).map((h) async {
+        final result = await runNmapServiceScanDetailed(h.ip);
+        if (result.error != null) {
+          error ??= result.error;
+          return null;
+        }
+        final ports = (result.data ?? const [])
+            .map(
+              (p) => OpenPort(
+                port: p.port,
+                service: p.service,
+                banner: p.version.isEmpty ? null : p.version,
+              ),
+            )
+            .toList();
+        return ScannedHost(
+          ip: h.ip,
+          mac: h.mac,
+          hostname: h.hostname,
+          vendor: h.vendor,
+          isGateway: h.isGateway,
+          isSelf: h.isSelf,
+          openPorts: ports,
+          pingMs: h.pingMs,
+        );
+      });
+      final done = await Future.wait(batch);
+      extra.addAll(done.whereType<ScannedHost>());
+      if (!mounted) return;
+      setState(() {
+        _toolsNote =
+            'Deep scan… ${extra.length}/${_hosts.length} host(s) done.';
+      });
+    }
+    if (!mounted) return;
+    setState(() {
+      _hosts = mergeHosts(_hosts, extra);
+      _toolsBusy = false;
+      _toolsNote = error != null
+          ? 'Deep scan: $error ${installCommandFor('nmap') ?? ''}'
+          : 'Deep scan done — service versions are on the host cards.';
+    });
+  }
+
+  /// iperf3 speed test to a server the user types in (e.g. a PC on the
+  /// same LAN running `iperf3 -s`). Desktop only.
+  Future<void> _runIperf3() async {
+    final server = _iperfServerCtrl.text.trim();
+    if (server.isEmpty || _toolsBusy) return;
+    setState(() {
+      _toolsBusy = true;
+      _toolsNote = 'Running ${iperf3Command(server)} …';
+    });
+    final result = await runIperf3(server);
+    if (!mounted) return;
+    setState(() {
+      _toolsBusy = false;
+      _toolsNote = result.error != null
+          ? 'iperf3: ${result.error} ${installCommandFor('iperf3') ?? ''}'
+          : 'Speed to $server: ${result.data!.sentMbps.toStringAsFixed(1)} Mbps up / ${result.data!.receivedMbps.toStringAsFixed(1)} Mbps down.';
+    });
+  }
+
+  /// nmcli WiFi scan + iw link info (Linux only) — the networks your own
+  /// card can see, same list any WiFi picker shows.
+  Future<void> _runNmcliScan() async {
+    if (_toolsBusy) return;
+    setState(() {
+      _toolsBusy = true;
+      _toolsNote = 'Running ${nmcliWifiScanCommand()} …';
+    });
+    final result = await runNmcliWifiScan();
+    if (!mounted) return;
+    if (result.error != null) {
+      setState(() {
+        _toolsBusy = false;
+        _toolsNote = 'nmcli: ${result.error} ${installCommandFor('nmcli') ?? ''}';
+      });
+      return;
+    }
+    final rows = result.data ?? const [];
+    final iw = await runIwDev();
+    setState(() {
+      _toolsBusy = false;
+      _toolsNote = rows.isEmpty
+          ? 'No WiFi networks found.'
+          : 'WiFi networks nearby:\n${rows.map((r) => '• ${r.ssid} — ${r.signal}% — ${r.security}').join('\n')}'
+              '${iw.data != null ? '\nLink: ${iw.data}' : ''}';
+    });
+  }
+
+  /// tshark protocol summary on one interface (Linux only, bounded).
+  Future<void> _runTshark() async {
+    final iface =
+        _tsharkIfaceCtrl.text.trim().isEmpty ? null : _tsharkIfaceCtrl.text.trim();
+    if (iface == null || _toolsBusy) return;
+    setState(() {
+      _toolsBusy = true;
+      _toolsNote = 'Capturing on $iface for 10s (protocol summary only)…';
+    });
+    final result = await runTsharkProtocolSummary(
+      interfaceName: iface,
+      seconds: 10,
+    );
+    if (!mounted) return;
+    setState(() {
+      _toolsBusy = false;
+      _toolsNote = result.error != null
+          ? 'tshark: ${result.error} ${installCommandFor('tshark') ?? ''}'
+          : 'Traffic on $iface (10s):\n${(result.data ?? const []).take(8).map((p) => '• ${p.protocol}: ${p.frames} frames, ${p.bytes} bytes').join('\n')}';
+    });
+  }
+
+  /// TP-Link: login + device list + QoS probe, step by step, so the user
+  /// sees exactly what their router supports.
+  Future<void> _testTplink() async {
+    if (_probingTplink) return;
+    setState(() {
+      _probingTplink = true;
+      _limitNote = 'Testing the TP-Link connection…';
+    });
+    final probe = await TpLinkAdapter().testConnection(
+      gatewayIp: _gatewayCtrl.text.trim(),
+      credentials: RouterCredentials(
+        username: _routerUserCtrl.text.trim(),
+        password: _routerPassCtrl.text,
+      ),
+    );
+    if (!mounted) return;
+    setState(() {
+      _tplinkProbe = probe;
+      _probingTplink = false;
+      _limitNote = probe.message;
+    });
+    _routerPassCtrl.clear();
+  }
+
+  /// OpenWrt: read the router's SSH host-key fingerprint so the user can
+  /// confirm it before the first limit is applied over SSH.
+  Future<void> _probeSsh() async {
+    if (_probingSsh) return;
+    setState(() {
+      _probingSsh = true;
+      _sshNote = 'Reading the router SSH fingerprint…';
+    });
+    final fp = await OpenWrtAdapter().probeSshFingerprint(
+      gatewayIp: _gatewayCtrl.text.trim(),
+    );
+    if (!mounted) return;
+    setState(() {
+      _probingSsh = false;
+      if (fp == null) {
+        _sshNote =
+            'Could not read the SSH fingerprint. Is SSH enabled on the OpenWrt router (port 22)?';
+      } else {
+        _sshFingerprint = fp;
+        _sshFingerprintConfirmed = false;
+        _sshNote =
+            'Router SSH fingerprint: $fp — check it matches the router, then confirm below.';
+      }
     });
   }
 
   Future<void> _applyLimit() async {
     final device = _selectedDevice;
     if (device == null) return;
-    final service = LimiterService(_adapter);
-    final result = await service.applyRule(
+    final result = await _limiter.applyRule(
       rule: LimitRule(
         deviceMac: device.mac,
         deviceIp: device.ip,
@@ -395,7 +675,51 @@ class _HomePageState extends State<HomePage> {
         username: _routerUserCtrl.text.trim(),
         password: _routerPassCtrl.text,
       ),
+      expectedFingerprint:
+          _adapter.profileId == 'openwrt' && _sshFingerprintConfirmed
+              ? _sshFingerprint
+              : null,
     );
+    if (!mounted) return;
+    setState(() => _limitNote = result.message);
+    _routerPassCtrl.clear();
+  }
+
+  /// Re-check a saved rule against the router right now.
+  Future<void> _verifySavedRule(LimitRule rule) async {
+    final result = await _limiter.verifyRule(
+      deviceMac: rule.deviceMac,
+      deviceIp: rule.deviceIp,
+      gatewayIp: _gatewayCtrl.text.trim(),
+      credentials: RouterCredentials(
+        username: _routerUserCtrl.text.trim(),
+        password: _routerPassCtrl.text,
+      ),
+      expectedFingerprint:
+          _adapter.profileId == 'openwrt' && _sshFingerprintConfirmed
+              ? _sshFingerprint
+              : null,
+    );
+    if (!mounted) return;
+    setState(() => _limitNote = result.message);
+    _routerPassCtrl.clear();
+  }
+
+  /// Remove a saved rule (and clear it on the router where supported).
+  Future<void> _removeSavedRule(LimitRule rule) async {
+    final result = await _limiter.removeRule(
+      deviceMac: rule.deviceMac,
+      gatewayIp: _gatewayCtrl.text.trim(),
+      credentials: RouterCredentials(
+        username: _routerUserCtrl.text.trim(),
+        password: _routerPassCtrl.text,
+      ),
+      expectedFingerprint:
+          _adapter.profileId == 'openwrt' && _sshFingerprintConfirmed
+              ? _sshFingerprint
+              : null,
+    );
+    if (!mounted) return;
     setState(() => _limitNote = result.message);
     _routerPassCtrl.clear();
   }
@@ -805,10 +1129,24 @@ class _HomePageState extends State<HomePage> {
           ),
         ),
         const SizedBox(height: 16),
-        FilledButton.icon(
-          onPressed: _scanning ? null : _startScan,
-          icon: const Icon(Icons.radar),
-          label: Text(_scanning ? 'Scanning…' : 'Scan my network'),
+        Row(
+          children: [
+            Expanded(
+              child: FilledButton.icon(
+                onPressed: _scanning ? null : _startScan,
+                icon: const Icon(Icons.radar),
+                label: Text(_scanning ? 'Scanning…' : 'Scan my network'),
+              ),
+            ),
+            if (_scanning) ...[
+              const SizedBox(width: 8),
+              OutlinedButton.icon(
+                onPressed: () => setState(() => _cancelScan = true),
+                icon: const Icon(Icons.cancel),
+                label: const Text('Cancel'),
+              ),
+            ],
+          ],
         ),
         if (_scanning) ...[
           const SizedBox(height: 12),
@@ -835,17 +1173,17 @@ class _HomePageState extends State<HomePage> {
                     : CyberpunkTheme.neonCyan,
               ),
               title: Text(
-                '${h.displayName}${h.isGateway ? '  [ROUTER]' : ''}${h.isSelf ? '  [THIS DEVICE]' : ''}${h.looksRisky ? '  [CHECK]' : ''}',
+                '${h.displayName}${h.isGateway ? '  [ROUTER]' : ''}${h.isSelf ? '  [THIS DEVICE]' : ''}${h.looksRisky ? '  [CHECK]' : ''}${_newMacs.contains((h.mac ?? '').toUpperCase()) ? '  [NEW]' : ''}',
               ),
               subtitle: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
                   Text(
-                    '${h.ip}${h.mac != null && h.mac!.isNotEmpty ? ' • ${h.mac}' : ''}${h.pingMs != null ? ' • ${h.pingMs}ms' : ''}',
+                    '${guessDeviceKind(h)} • ${h.ip}${h.mac != null && h.mac!.isNotEmpty ? ' • ${h.mac}' : ''}${h.pingMs != null ? ' • ${h.pingMs}ms' : ''}',
                   ),
                   if (h.openPorts.isNotEmpty)
                     Text(
-                      'Open: ${h.openPorts.map((p) => '${p.port} (${p.service})').join(', ')}',
+                      'Open: ${h.openPorts.map((p) => '${p.port} (${p.service})${p.banner != null ? ' ${p.banner}' : ''}').join(', ')}',
                       style: const TextStyle(
                         color: CyberpunkTheme.warnAmber,
                         fontSize: 12,
@@ -870,7 +1208,8 @@ class _HomePageState extends State<HomePage> {
           const SizedBox(height: 8),
           const Text(
             'Tap a device to set its limit on the Limits tab. '
-            '[CHECK] means Telnet/FTP is open on that device — worth a look.',
+            '[NEW] means this device was never seen on your network before. '
+            '[CHECK] means Telnet/FTP/RDP/VNC is open on that device — worth a look.',
             style: TextStyle(color: CyberpunkTheme.textMuted),
           ),
         ],
@@ -879,8 +1218,8 @@ class _HomePageState extends State<HomePage> {
         const SizedBox(height: 8),
         Text(
           isDesktop
-              ? 'Tools found on this computer. Commands run only on your own network, and the exact command is shown before it runs.'
-              : 'These tools live on the Linux / desktop build. On this phone they are not installed — the Linux build (v0.5.0) runs them.',
+              ? 'Tools found on this computer. Commands run only on your own network, and the exact command is shown before it runs. Missing tools show their install command.'
+              : 'These tools live on the Linux / desktop build. On this phone they are not installed — use the Windows or Linux build for nmap, arp-scan, iperf3 and tshark.',
         ),
         const SizedBox(height: 12),
         if (!_toolsChecked)
@@ -912,6 +1251,15 @@ class _HomePageState extends State<HomePage> {
                           fontSize: 12,
                         ),
                       ),
+                    if (!tool.available &&
+                        installCommandFor(tool.command) != null)
+                      Text(
+                        'Install: ${installCommandFor(tool.command)}',
+                        style: const TextStyle(
+                          color: CyberpunkTheme.neonCyan,
+                          fontSize: 12,
+                        ),
+                      ),
                     if (tool.crackingNote != null)
                       Text(
                         tool.crackingNote!,
@@ -928,7 +1276,8 @@ class _HomePageState extends State<HomePage> {
           if (isDesktop) ...[
             const SizedBox(height: 12),
             FilledButton.icon(
-              onPressed: _network == null ? null : _runNmapScan,
+              onPressed:
+                  (_network == null || _toolsBusy) ? null : _runNmapScan,
               icon: const Icon(Icons.radar),
               label: Text(
                 'Run nmap ping scan (${network == null ? '…' : '${network.networkAddress}/${network.prefix}'})',
@@ -936,10 +1285,52 @@ class _HomePageState extends State<HomePage> {
             ),
             const SizedBox(height: 8),
             FilledButton.icon(
-              onPressed: _runArpScan,
+              onPressed: _toolsBusy ? null : _runArpScan,
               icon: const Icon(Icons.hub),
               label: const Text('Run arp-scan --localnet'),
             ),
+            const SizedBox(height: 8),
+            FilledButton.icon(
+              onPressed: (_hosts.isEmpty || _toolsBusy) ? null : _runDeepScan,
+              icon: const Icon(Icons.search),
+              label: const Text('Deep scan all hosts (nmap -sV)'),
+            ),
+            const SizedBox(height: 16),
+            TextField(
+              controller: _iperfServerCtrl,
+              decoration: const InputDecoration(
+                labelText: 'iperf3 server (e.g. 192.168.1.10, running iperf3 -s)',
+                border: OutlineInputBorder(),
+              ),
+            ),
+            const SizedBox(height: 8),
+            FilledButton.icon(
+              onPressed: _toolsBusy ? null : _runIperf3,
+              icon: const Icon(Icons.speed),
+              label: const Text('Test speed to server (iperf3)'),
+            ),
+            if (Platform.isLinux) ...[
+              const SizedBox(height: 8),
+              FilledButton.icon(
+                onPressed: _toolsBusy ? null : _runNmcliScan,
+                icon: const Icon(Icons.wifi),
+                label: const Text('Scan nearby WiFi (nmcli)'),
+              ),
+              const SizedBox(height: 12),
+              TextField(
+                controller: _tsharkIfaceCtrl,
+                decoration: InputDecoration(
+                  labelText: 'tshark interface (e.g. ${network?.interfaceName ?? 'wlan0'})',
+                  border: const OutlineInputBorder(),
+                ),
+              ),
+              const SizedBox(height: 8),
+              FilledButton.icon(
+                onPressed: _toolsBusy ? null : _runTshark,
+                icon: const Icon(Icons.analytics),
+                label: const Text('Traffic summary, 10s (tshark)'),
+              ),
+            ],
             if (_toolsNote.isNotEmpty) ...[
               const SizedBox(height: 8),
               Text(_toolsNote),
@@ -947,10 +1338,10 @@ class _HomePageState extends State<HomePage> {
           ],
         ],
         const SizedBox(height: 24),
-        const CyberHeading('Router detect (optional)'),
+        const CyberHeading('Router detect'),
         const SizedBox(height: 8),
         const Text(
-          'Only needed for the limiter: paste the router admin page title if you know it — it raises the confidence score. The scan above already filled in the gateway.',
+          'Automatic: after the network is found, WiHisar reads the router admin page (title + Server header) and detects the vendor itself. The fields below are only an override if auto-detect gets it wrong.',
         ),
         const SizedBox(height: 16),
         TextField(
@@ -1016,6 +1407,9 @@ class _HomePageState extends State<HomePage> {
   Widget _limitsTab() {
     final adapter = _adapter;
     final device = _selectedDevice;
+    final savedRules = _limiter.rules;
+    final isTplink = _detection?.profile.id == 'tplink';
+    final isOpenWrt = _detection?.profile.id == 'openwrt';
     return ListView(
       padding: const EdgeInsets.all(16),
       children: [
@@ -1037,6 +1431,127 @@ class _HomePageState extends State<HomePage> {
               ),
             ),
           ),
+        ],
+        if (isTplink) ...[
+          const SizedBox(height: 16),
+          FilledButton.icon(
+            onPressed: _probingTplink ? null : _testTplink,
+            icon: const Icon(Icons.network_check),
+            label: Text(
+              _probingTplink ? 'Testing…' : 'Test TP-Link connection',
+            ),
+          ),
+          if (_tplinkProbe != null) ...[
+            const SizedBox(height: 8),
+            Text(
+              'Login: ${_tplinkProbe!.loginOk ? 'OK' : 'FAILED'} • '
+              'Devices on router: ${_tplinkProbe!.deviceCount} • '
+              'QoS: ${_tplinkProbe!.qosOk ? 'supported' : 'not confirmed'}',
+            ),
+          ],
+        ],
+        if (isOpenWrt) ...[
+          const SizedBox(height: 16),
+          const Text(
+            'OpenWrt limits are applied over SSH as root. First probe the router fingerprint, check it, then confirm — the app never applies to an unverified SSH key.',
+            style: TextStyle(color: CyberpunkTheme.textMuted),
+          ),
+          const SizedBox(height: 8),
+          FilledButton.icon(
+            onPressed: _probingSsh ? null : _probeSsh,
+            icon: const Icon(Icons.key),
+            label: Text(
+              _probingSsh ? 'Reading…' : 'Probe SSH fingerprint',
+            ),
+          ),
+          if (_sshNote.isNotEmpty) ...[
+            const SizedBox(height: 8),
+            Text(_sshNote),
+          ],
+          if (_sshFingerprint != null && !_sshFingerprintConfirmed) ...[
+            const SizedBox(height: 8),
+            FilledButton.icon(
+              onPressed: () => setState(() {
+                _sshFingerprintConfirmed = true;
+                _sshNote =
+                    'Fingerprint confirmed — limits will now apply over SSH.';
+              }),
+              icon: const Icon(Icons.verified),
+              label: const Text('Confirm this fingerprint'),
+            ),
+          ],
+          if (device != null) ...[
+            const SizedBox(height: 12),
+            const Text(
+              'Commands that will run on the router:',
+              style: TextStyle(fontWeight: FontWeight.bold),
+            ),
+            const SizedBox(height: 4),
+            Text(
+              OpenWrtAdapter.htbCommandsFor(
+                deviceIp: device.ip,
+                downMbps: _downMbps,
+                upMbps: _upMbps,
+              ).join('\n'),
+              style: const TextStyle(fontFamily: 'monospace', fontSize: 12),
+            ),
+          ],
+        ],
+        if (savedRules.isNotEmpty) ...[
+          const SizedBox(height: 24),
+          const CyberHeading('Saved limits'),
+          const SizedBox(height: 8),
+          for (final rule in savedRules)
+            Card(
+              child: ListTile(
+                leading: Icon(
+                  _limiter.isApplied(rule.deviceMac)
+                      ? Icons.check_circle
+                      : Icons.error_outline,
+                  color: _limiter.isApplied(rule.deviceMac)
+                      ? CyberpunkTheme.neonLime
+                      : CyberpunkTheme.warnAmber,
+                ),
+                title: Text(
+                  '${rule.deviceLabel} — ${rule.downMbps.toStringAsFixed(1)} down / ${rule.upMbps.toStringAsFixed(1)} up Mbps',
+                ),
+                subtitle: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text('${rule.deviceIp} • ${rule.deviceMac}'),
+                    Text(
+                      _limiter.isApplied(rule.deviceMac)
+                          ? 'Applied'
+                          : 'Wanted, not applied',
+                    ),
+                    if (_limiter.messageFor(rule.deviceMac) != null)
+                      Text(
+                        _limiter.messageFor(rule.deviceMac)!,
+                        style: const TextStyle(
+                          color: CyberpunkTheme.textMuted,
+                          fontSize: 12,
+                        ),
+                      ),
+                  ],
+                ),
+                isThreeLine: true,
+                trailing: Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    IconButton(
+                      icon: const Icon(Icons.verified),
+                      tooltip: 'Verify on the router now',
+                      onPressed: () => _verifySavedRule(rule),
+                    ),
+                    IconButton(
+                      icon: const Icon(Icons.delete),
+                      tooltip: 'Remove limit',
+                      onPressed: () => _removeSavedRule(rule),
+                    ),
+                  ],
+                ),
+              ),
+            ),
         ],
         const SizedBox(height: 16),
         if (device == null)

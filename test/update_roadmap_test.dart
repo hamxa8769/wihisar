@@ -110,10 +110,10 @@ void main() {
       }
     });
 
-    test('next version is v0.5.0 Vulnerability Lab', () {
-      expect(nextVersion, 'v0.5.0');
+    test('next version is v0.6.0 Vulnerability Lab', () {
+      expect(nextVersion, 'v0.6.0');
       expect(
-        kRoadmap.firstWhere((i) => i.version == 'v0.5.0').title,
+        kRoadmap.firstWhere((i) => i.version == 'v0.6.0').title,
         contains('Vulnerability'),
       );
     });

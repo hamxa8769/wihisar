@@ -76,12 +76,20 @@ abstract class RouterAdapter {
   });
 
   /// Apply a per-device download/upload limit (Mbps).
+  ///
+  /// [deviceIp] is needed by adapters that shape traffic per IP (OpenWrt
+  /// HTB). [expectedFingerprint] is the router SSH host-key fingerprint
+  /// the user already probed and confirmed (OpenWrt only); an adapter that
+  /// needs it must refuse to connect without it rather than trusting an
+  /// unknown host key.
   Future<LimitResult> setLimit({
     required String gatewayIp,
     required RouterCredentials credentials,
     required String deviceMac,
+    String? deviceIp,
     required double downMbps,
     required double upMbps,
+    String? expectedFingerprint,
   });
 
   /// Remove a previously applied limit for a device.
@@ -89,5 +97,21 @@ abstract class RouterAdapter {
     required String gatewayIp,
     required RouterCredentials credentials,
     required String deviceMac,
+    String? deviceIp,
+    String? expectedFingerprint,
   });
+
+  /// Re-check whether a limit for a device is actually in force right
+  /// now, by asking the router. The default says so honestly when the
+  /// router cannot be asked; adapters that can verify override this.
+  Future<LimitResult> verifyLimit({
+    required String gatewayIp,
+    required RouterCredentials credentials,
+    required String deviceMac,
+    String? deviceIp,
+    String? expectedFingerprint,
+  }) =>
+      Future.value(
+        LimitResult.unsupported('This router cannot verify a limit.'),
+      );
 }
