@@ -8,9 +8,12 @@
 #      input, e.g. to attach builds to an existing release.
 #
 # Notes (honest):
-# - The APK is signed with Flutter's debug keystore fallback (no release
-#   keystore is configured yet). It installs fine by sideloading; a proper
-#   release keystore is a v0.2.2 job.
+# - The APK is signed with the stable WiHisar release keystore (kept as
+#   repo secrets ANDROID_KEYSTORE_*; backup outside the repo). From
+#   v0.4.1 on, every release APK carries the same signature, so updates
+#   install over the old app — including the in-app updater. Builds
+#   before v0.4.1 used Flutter's per-run debug key, so moving to v0.4.1
+#   needs ONE uninstall of the old app; after that, no more uninstalls.
 # - iOS (.ipa) is NOT built here: it needs macOS + Xcode + Apple signing,
 #   which GitHub's macOS runner could do only with the user's Apple
 #   credentials. Android + Windows first; iOS later.
@@ -46,8 +49,21 @@ jobs:
         run: flutter analyze --no-fatal-infos
       - name: Test
         run: flutter test
+      - name: Set up release signing (stable key, one uninstall to v0.4.1)
+        env:
+          KEYSTORE_BASE64: ${{ secrets.ANDROID_KEYSTORE_BASE64 }}
+          STORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
+          KEY_PASSWORD: ${{ secrets.ANDROID_KEY_PASSWORD }}
+          KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
+        run: |
+          echo "$KEYSTORE_BASE64" | base64 --decode > android/app/wihisar-release.keystore
+          printf 'storePassword=%s\nkeyPassword=%s\nkeyAlias=%s\nstoreFile=wihisar-release.keystore\n' "$STORE_PASSWORD" "$KEY_PASSWORD" "$KEY_ALIAS" > android/key.properties
       - name: Build APK
         run: flutter build apk --release
+      - name: Verify release signature (must be the WiHisar key, not debug)
+        run: |
+          keytool -printcert -jarfile "build/app/outputs/flutter-apk/app-release.apk" | tee /tmp/cert.txt
+          grep -q "CN=WiHisar" /tmp/cert.txt
       - name: Rename APK
         run: |
           cp build/app/outputs/flutter-apk/app-release.apk \
